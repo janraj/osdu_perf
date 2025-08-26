@@ -1,14 +1,26 @@
 # setup.py
 from setuptools import setup, find_packages
+import os
+
+# Read README.md safely
+readme_path = os.path.join(os.path.dirname(__file__), "README.md")
+long_description = "A comprehensive Python library for performance testing OSDU services with automatic service discovery, Azure authentication, and Locust integration."
+
+try:
+    with open(readme_path, "r", encoding="utf-8") as f:
+        long_description = f.read()
+except (FileNotFoundError, UnicodeDecodeError):
+    pass  # Use default description if README can't be read
 
 setup(
-    name="osdu-perf",
+    name="osdu_perf",
     version="1.0.0",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
-    long_description="A comprehensive Python library for performance testing OSDU services with automatic service discovery, Azure authentication, and Locust integration.",
-    url="https://github.com/janraj/osdu-perf",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/janraj/osdu_perf",
     packages=find_packages(),
     install_requires=[
         "locust>=2.0.0",
@@ -45,6 +57,8 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "osdu_perf": ["templates/*.py", "config/*.yaml"],
+        "osdu_perf": ["templates/*.py"],
     },
+    license="MIT",
+    zip_safe=False,
 )

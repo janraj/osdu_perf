@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "osdu-perf"
+name = "osdu_perf"
 version = "1.0.0"
 authors = [
     {name = "Janraj CJ", email = "janrajcj@microsoft.com"},
 ]
 description = "Performance Testing Framework for OSDU Services"
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "MIT"}
 requires-python = ">=3.8"
 classifiers = [
@@ -46,19 +46,19 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/janraj/osdu-perf"
-Documentation = "https://github.com/janraj/osdu-perf#readme"
-Repository = "https://github.com/microsoft/adme-perf-testing-framework.git"
-Issues = "https://github.com/microsoft/adme-perf-testing-framework/issues"
+Homepage = "https://github.com/janraj/osdu_perf"
+Documentation = "https://github.com/janraj/osdu_perf#readme"
+Repository = "https://github.com/janraj/osdu_perf"
+Issues = "https://github.com/janraj/osdu_perf/issues"
 
 [project.scripts]
 osdu-perf = "osdu_perf.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["perf_framework*"]
+include = ["osdu_perf*"]
 
 [tool.setuptools.package-data]
-perf_framework = ["templates/*.py", "config/*.yaml"]
+osdu_perf = ["templates/*.py"]
 
 [tool.black]
 line-length = 88
@@ -83,7 +83,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=perf_framework --cov-report=html --cov-report=term-missing"
+addopts = "--cov=osdu_perf --cov-report=html --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.8"
