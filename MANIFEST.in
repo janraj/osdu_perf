@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include requirements.txt
+recursive-include perf_framework/templates *.py
+recursive-include perf_framework/config *.yaml
+recursive-include examples *.py
+recursive-include examples *.md
+global-exclude *.pyc
+global-exclude __pycache__
