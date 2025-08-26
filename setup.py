@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.0",
+    version="1.0.2",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
@@ -52,7 +52,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "osdu-perf=osdu_perf.cli:main",
+            "osdu_perf=osdu_perf.cli:main",
         ],
     },
     include_package_data=True,
