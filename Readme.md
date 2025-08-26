@@ -3,303 +3,154 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A comprehensive Python library for performance testing OSDU (Open Subsurface Data Universe) services with automatic service discovery, Azure authentication, and Locust integration.
+A small, extensible Python framework for performance testing OSDU (Open Subsurface Data Universe) services. Features automatic test discovery, Azure authentication helpers, and Locust integration.
 
 ## 📋 Overview
 
-This framework addresses the gap in performance testing tools by providing:
+Key features:
 
-- ✅ **Automatic Service Discovery**: Dynamically discovers and registers test services
-- ✅ **Azure Authentication**: Built-in Azure AD authentication with multiple credential types
-- ✅ **Locust Integration**: Seamless integration with Locust for load testing
-- ✅ **Modular Architecture**: Easy to extend and customize for different services
-- ✅ **CLI Tools**: Command-line interface for project scaffolding
-- ✅ **Developer Friendly**: Simple setup and intuitive API
+- ✅ Automatic test discovery (perf_*_test.py files)
+- ✅ Azure AD authentication helpers (AzureTokenManager)
+- ✅ Locust integration (PerformanceUser base class)
+- ✅ CLI helpers to scaffold projects and templates
+- ✅ Template files bundled in the package under `osdu_perf/templates`
 
 ## 🚀 Quick Start
 
 ### Installation
 
-```bash
-pip install osdu-perf
-```
-
-### Initialize a New Project
+Install from PyPI (package name as defined in this repository):
 
 ```bash
-python -m osdu_perf.cli init my-performance-tests
-cd my-performance-tests
-pip install -r requirements.txt
+pip install osdu_perf
 ```
 
-### Create Your First Service Test
+Or install in editable mode for development:
 
 ```bash
-python -m osdu_perf.cli create-service my-api --output-dir ./services
+pip install -e .[dev]
 ```
 
-### Run Performance Tests
+### CLI (scaffold a new project)
+
+You can run the CLI either via the module or the installed console script:
+
+- Using the module:
 
 ```bash
-locust -f locustfile.py --host https://your-api.com --partition your-partition-id --appid your-app-id
+python -m osdu_perf.cli init storage
 ```
 
-## 📚 Documentation
+- Using the installed console script (after pip install):
 
-### Core Components
-
-#### 1. PerformanceUser
-
-The main user class that inherits from Locust's `HttpUser`:
-
-```python
-from locust import events
-from osdu_perf import PerformanceUser
-
-@events.init_command_line_parser.add_listener
-def add_custom_args(parser):
-    parser.add_argument("--partition", type=str, help="Partition ID")
-    parser.add_argument("--appid", type=str, help="OSDU App ID")
-
-class OSDUUser(PerformanceUser):
-    pass  # Automatic service discovery and execution
+```bash
+osdu_perf init storage
 ```
 
-#### 2. BaseService
+The `init` command will create a `perf_tests` directory (if not present) and generate:
 
-Create service-specific tests by inheriting from `BaseService`:
+- `locustfile.py`
+- `perf_<service>_test.py` (e.g. `perf_storage_test.py`)
+- `requirements.txt`
+- `README.md` (project README)
+
+There are also legacy/compat commands available via the same CLI:
+
+```bash
+osdu_perf create-service <name> --output-dir ./services
+osdu_perf create-locustfile --output ./locustfile.py
+```
+
+### Run a Locust test
+
+From inside the generated `perf_tests/` (or your project folder):
+
+```bash
+locust -f locustfile.py --host https://your-api-host --partition your-partition --appid your-app-id
+```
+
+Additional Locust options are supported (e.g. `-u`, `-r`, `--headless`, `-t`).
+
+## 📚 Key Concepts and Components
+
+- `PerformanceUser` (in `osdu_perf.locust.user_base`)
+  - Inherits from Locust's `HttpUser`.
+  - On start, it initializes `InputHandler` and `ServiceOrchestrator` and discovers registered tests.
+  - Implements a task that calls each discovered service's `execute()` method.
+
+- `BaseService` (in `osdu_perf.core.base_service`)
+  - Abstract base class for service test classes.
+  - Convention: implement `execute(headers=None, partition=None, base_url=None)` (this matches the project templates and the locust user flow).
+
+- `ServiceOrchestrator` (in `osdu_perf.core.service_orchestrator`)
+  - Auto-discovers test classes defined in files matching `perf_*_test.py` in the current working directory and instantiates them with the HTTP client.
+  - Also provides a legacy helper `register_service_sample()` to load service modules from a `services/` folder.
+
+- `InputHandler` (in `osdu_perf.core.input_handler`)
+  - Reads Locust `environment` values (host, parsed command-line options like `--partition` and `--appid`) and prepares request headers.
+  - Uses `AzureTokenManager` to obtain an access token and adds it to the headers.
+
+- `AzureTokenManager` (in `osdu_perf.core.auth`)
+  - Wrapper around Azure credential providers (Azure CLI, Managed Identity, DefaultAzureCredential).
+  - Use `get_access_token(scope)` to obtain a bearer token for requests.
+
+## 🧩 Project layout (scaffolded)
+
+```
+perf_tests/
+├── locustfile.py            # Main Locust file created by the CLI
+├── perf_<service>_test.py   # Example: perf_storage_test.py
+├── requirements.txt
+└── README.md
+```
+
+The package also includes templates (see `osdu_perf/templates`) for `locustfile` and service files.
+
+## 🛠️ Writing Tests
+
+- File naming: follow the `perf_*_test.py` pattern to allow automatic discovery by `ServiceOrchestrator`.
+- Class naming: create classes that inherit from `BaseService` (templates use `PerformanceTest` suffix but discovery is driven by subclassing `BaseService`).
+- Implement `execute(headers=None, partition=None, base_url=None)` to perform service calls using `self.client` (the HTTP client provided by Locust).
+
+Example snippet (simplified):
 
 ```python
 from osdu_perf import BaseService
 
-class MyAPIService(BaseService):
+class StoragePerformanceTest(BaseService):
     def __init__(self, client=None):
         super().__init__(client)
-        self.name = "my_api"
-    
+        self.name = "storage"
+
     def execute(self, headers=None, partition=None, base_url=None):
-        response = self.client.get(
-            f"{base_url}/api/health",
-            headers=headers,
-            name="health_check"
-        )
-        print(f"Health check: {response.status_code}")
+        resp = self.client.get(f"{base_url}/api/storage/v1/health", headers=headers, name="storage_health")
+        print(resp.status_code)
 ```
 
-#### 3. ServiceOrchestrator
+## 🧪 Development
 
-Automatically discovers and manages service execution:
-
-```python
-from osdu_perf import ServiceOrchestrator
-
-orchestrator = ServiceOrchestrator()
-orchestrator.register_service(client)
-services = orchestrator.get_services()
-```
-
-#### 4. AzureTokenManager
-
-Handles Azure authentication with multiple credential types:
-
-```python
-from osdu_perf import AzureTokenManager
-
-# Using Azure CLI credentials (development)
-token_manager = AzureTokenManager(client_id="your-app-id")
-token = token_manager.get_access_token("https://management.azure.com/.default")
-
-# Using Managed Identity (production)
-token_manager = AzureTokenManager(
-    client_id="your-app-id", 
-    use_managed_identity=True
-)
-```
-
-### Project Structure
-
-#### Traditional Approach (services folder)
-```
-my-performance-tests/
-├── locustfile.py           # Main Locust test file
-├── services/               # Service test implementations
-│   ├── __init__.py
-│   ├── health_service.py
-│   ├── data_service.py
-│   └── auth_service.py
-├── requirements.txt
-└── README.md
-```
-
-#### NEW Approach (perf_*_test.py files)
-```
-my-performance-tests/
-├── locustfile.py           # Main Locust test file  
-├── perf_health_test.py     # Health service tests
-├── perf_data_test.py       # Data service tests
-├── perf_auth_test.py       # Auth service tests
-├── requirements.txt
-└── README.md
-```
-
-### CLI Commands
-
-#### Initialize a new project
-```bash
-python -m osdu_perf.cli init <project-name>
-```
-
-#### Create a service template
-```bash
-python -m osdu_perf.cli create-service <service-name> --output-dir ./services
-```
-
-#### Create a locustfile template
-```bash
-python -m osdu_perf.cli create-locustfile --output ./locustfile.py
-```
-
-## 🔧 Advanced Usage
-
-### Custom Authentication
-
-```python
-from osdu_perf import InputHandler
-
-class CustomInputHandler(InputHandler):
-    def prepare_headers(self):
-        # Your custom authentication logic
-        return {
-            "Authorization": "Bearer your-custom-token",
-            "Content-Type": "application/json"
-        }
-```
-
-### Custom Service Discovery
-
-```python
-from osdu_perf import ServiceOrchestrator
-
-class CustomOrchestrator(ServiceOrchestrator):
-    def register_service(self, client=None):
-        # Your custom service discovery logic
-        super().register_service(client)
-```
-
-### Environment-Specific Configuration
-
-```python
-from osdu_perf import PerformanceUser
-from locust import task
-
-class OSDUUser(PerformanceUser):
-    @task
-    def custom_task(self):
-        # Environment-specific test logic
-        if "dev" in self.environment.host:
-            self.run_dev_tests()
-        else:
-            self.run_prod_tests()
-```
-
-## 🧪 Examples
-
-Check out the `examples/` directory for complete working examples:
-
-- **Basic Usage**: Simple health check and data operations
-- **Custom Services**: Advanced service implementations
-- **Authentication**: Different authentication patterns
-- **Multi-Environment**: Testing across different environments
-
-## 🔍 API Reference
-
-### Core Classes
-
-#### PerformanceUser
-- Inherits from Locust's `HttpUser`
-- Provides automatic service discovery and execution
-- Handles Azure authentication automatically
-
-#### BaseService
-- Abstract base class for service implementations
-- Must implement `execute()` method
-- Provides HTTP client access
-
-#### ServiceOrchestrator
-- Manages service discovery and registration
-- Automatically finds services in `services/` directory
-- Handles service lifecycle
-
-#### AzureTokenManager
-- Manages Azure AD authentication
-- Supports multiple credential types
-- Handles token caching and refresh
-
-#### InputHandler
-- Processes command-line arguments
-- Prepares HTTP headers with authentication
-- Manages environment configuration
-
-## 🛠️ Development
-
-### Setting up Development Environment
+- Run unit tests:
 
 ```bash
-git clone <repository-url>
-cd osdu-perf
-pip install -e .[dev]
+pytest
 ```
 
-### Running Tests
-
-```bash
-pytest tests/
-```
-
-### Code Formatting
+- Formatting and linting (if dev extras installed):
 
 ```bash
 black osdu_perf/
 flake8 osdu_perf/
 ```
 
-## 📊 Performance Testing Best Practices
-
-1. **Start Small**: Begin with simple health checks before complex scenarios
-2. **Monitor Resources**: Keep an eye on both client and server resources
-3. **Gradual Ramp-up**: Increase load gradually to identify breaking points
-4. **Environment Isolation**: Use separate environments for performance testing
-5. **Data Management**: Use test data that doesn't affect production systems
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
-
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the `LICENSE` file for details.
 
-## 🆘 Support
+## 🆘 Contact
 
-For questions and support:
-
-- 📧 Email: janrajcj@microsoft.com
-- 📄 Documentation: [Project Scope and Requirements](https://microsoftapc-my.sharepoint.com/:w:/g/personal/janrajcj_microsoft_com/Ecbqyd34-EhGkSZB_bGj-Y0BMdU5HrZCtQe1Iwy7-nnnBw?e=u980cq)
-
-## 🎯 Roadmap
-
-- [ ] Integration with Azure DevOps pipelines
-- [ ] Real-time performance monitoring dashboard
-- [ ] Automated performance regression detection
-- [ ] Integration with Application Insights
-- [ ] Support for GraphQL endpoints
-- [ ] Performance baseline management
+For questions: janrajcj@microsoft.com
 
 ---
 
-> 💡 **Pro Tip**: Start with the examples in the `examples/` directory to understand the framework patterns, then customize for your specific use cases!
+Generated from the repository code (synced with `osdu_perf` package).
 
