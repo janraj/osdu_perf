@@ -25,26 +25,21 @@ Install from PyPI (package name as defined in this repository):
 pip install osdu_perf
 ```
 
-Or install in editable mode for development:
-
-```bash
-pip install -e .[dev]
-```
-
 ### CLI (scaffold a new project)
 
 You can run the CLI either via the module or the installed console script:
 
-- Using the module:
-
-```bash
-python -m osdu_perf.cli init storage
-```
 
 - Using the installed console script (after pip install):
 
 ```bash
 osdu_perf init storage
+```
+
+- Using the module:
+
+```bash
+python -m osdu_perf.cli init storage
 ```
 
 The `init` command will create a `perf_tests` directory (if not present) and generate:
@@ -54,12 +49,6 @@ The `init` command will create a `perf_tests` directory (if not present) and gen
 - `requirements.txt`
 - `README.md` (project README)
 
-There are also legacy/compat commands available via the same CLI:
-
-```bash
-osdu_perf create-service <name> --output-dir ./services
-osdu_perf create-locustfile --output ./locustfile.py
-```
 
 ### Run a Locust test
 

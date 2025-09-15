@@ -19,3 +19,25 @@ class BaseService(ABC):
         This method should call all the service-specific tasks.
         """
         raise NotImplementedError("Subclasses must implement execute() method")
+
+
+    @abstractmethod
+    def provide_explicit_token(self):
+        """
+        Abstract method for providing an explicit token for service execution.
+        """
+        raise NotImplementedError("Subclasses must implement provide_explicit_token() method")
+
+    @abstractmethod
+    def prehook(self):
+        """
+        Abstract method for pre-hook tasks before service execution.
+        """
+        raise NotImplementedError("Subclasses must implement prehook() method")
+
+    @abstractmethod
+    def posthook(self):
+        """
+        Abstract method for post-hook tasks after service execution.
+        """
+        raise NotImplementedError("Subclasses must implement posthook() method")

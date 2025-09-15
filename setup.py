@@ -14,14 +14,14 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.3",
+    version="1.0.5",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/janraj/osdu_perf",
-    packages=find_packages(),
+    packages=find_packages(exclude=["tests", "tests.*"]),
     install_requires=[
         "locust>=2.0.0",
         "azure-identity>=1.12.0",

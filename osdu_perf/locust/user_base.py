@@ -11,6 +11,7 @@ class PerformanceUser(HttpUser):
 
     # Recommended default pacing between tasks (more realistic than no-wait)
     wait_time = between(1, 3)
+    host = "https://localhost"  # Default host for testing
 
     def __init__(self, environment):
         super().__init__(environment)
@@ -29,12 +30,37 @@ class PerformanceUser(HttpUser):
     def execute_services(self):
         """Execute all registered services"""
         for service in self.services:
+            # make a per-service copy of the base headers so Authorization doesn't leak between services
+            header = dict(self.input_handler.header)
+            if hasattr(service, 'provide_explicit_token') and callable(service.provide_explicit_token):
+                try:
+                    token = service.provide_explicit_token()
+                    # if subclass implemented the method but returned nothing (e.g. `pass` -> None), skip setting Authorization
+                    if token:
+                        header['Authorization'] = f"Bearer {token}"
+                except Exception as e:
+                    self.logger.error(f"Providing explicit token failed: {e}")
+   
+            if hasattr(service, 'prehook') and callable(service.prehook):
+                try:
+                    service.prehook()
+                except Exception as e:
+                    self.logger.error(f"Service prehook failed: {e}")
+                    continue  # Skip this service if prehook fails
+   
+
             if hasattr(service, 'execute') and callable(service.execute):
                 try:
                     service.execute(
-                        headers=self.input_handler.header,
+                        headers=header,
                         partition=self.input_handler.partition,
                         base_url=self.input_handler.base_url
                     )
                 except Exception as e:
                     self.logger.error(f"Service execution failed: {e}")
+
+            if hasattr(service, 'posthook') and callable(service.posthook):
+                try:
+                    service.posthook()
+                except Exception as e:
+                    self.logger.error(f"Service posthook failed: {e}")
