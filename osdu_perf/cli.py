@@ -186,6 +186,51 @@ class {service_name.title()}PerformanceTest(BaseService):
         
         print(f"✅ Completed {{self.name}} performance tests")
     
+    def provide_explicit_token(self) -> str:
+        """
+        Provide an explicit token for service execution.
+        
+        Override this method if you need custom token logic.
+        
+        Returns:
+            str: Authentication token for API requests
+        """
+        # TODO: Implement custom token logic if needed
+        # Example: return "Bearer your-custom-token-here"
+        return ""
+    
+    def prehook(self, headers=None, partition=None, host=None):
+        """
+        Pre-hook tasks before service execution.
+        
+        Use this method to set up test data, configurations, or prerequisites.
+        
+        Args:
+            headers: HTTP headers including authentication
+            partition: Data partition ID  
+            host: Host URL for the service
+        """
+        print(f"🔧 Setting up prerequisites for {{self.name}} tests...")
+        # TODO: Implement setup logic (e.g., create test data, configure environment)
+        # Example: Create test records, validate partition access, etc.
+        pass
+    
+    def posthook(self, headers=None, partition=None, host=None):
+        """
+        Post-hook tasks after service execution.
+        
+        Use this method for cleanup, reporting, or post-test validations.
+        
+        Args:
+            headers: HTTP headers including authentication
+            partition: Data partition ID  
+            host: Host URL for the service
+        """
+        print(f"🧹 Cleaning up after {{self.name}} tests...")
+        # TODO: Implement cleanup logic (e.g., delete test data, reset state)
+        # Example: Remove test records, generate reports, validate cleanup
+        pass
+    
     def _test_health_check(self, headers, base_url):
         """Test health check endpoint"""
         try:

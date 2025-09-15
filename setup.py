@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.5",
+    version="1.0.8",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
@@ -39,7 +39,7 @@ setup(
     },
     python_requires=">=3.8",
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",

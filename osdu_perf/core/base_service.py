@@ -22,22 +22,35 @@ class BaseService(ABC):
 
 
     @abstractmethod
-    def provide_explicit_token(self):
+    def provide_explicit_token(self) -> str:
         """
         Abstract method for providing an explicit token for service execution.
+        
+        Returns:
+            str: Authentication token for API requests
         """
         raise NotImplementedError("Subclasses must implement provide_explicit_token() method")
 
     @abstractmethod
-    def prehook(self):
+    def prehook(self, headers=None, partition=None, host=None):
         """
         Abstract method for pre-hook tasks before service execution.
+        
+        Args:
+            headers: HTTP headers including authentication
+            partition: Data partition ID  
+            host: Host URL for the service
         """
         raise NotImplementedError("Subclasses must implement prehook() method")
 
     @abstractmethod
-    def posthook(self):
+    def posthook(self, headers=None, partition=None, host=None):
         """
         Abstract method for post-hook tasks after service execution.
+        
+        Args:
+            headers: HTTP headers including authentication
+            partition: Data partition ID  
+            host: Host URL for the service
         """
         raise NotImplementedError("Subclasses must implement posthook() method")
