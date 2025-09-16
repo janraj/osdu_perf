@@ -33,6 +33,7 @@ class PerformanceUser(HttpUser):
             # make a per-service copy of the base headers so Authorization doesn't leak between services
             header = dict(self.input_handler.header)
             if hasattr(service, 'provide_explicit_token') and callable(service.provide_explicit_token):
+                print("[PerformanceUser][provide_explicit_token] Checking any explicit token provided or not")
                 try:
                     token = service.provide_explicit_token()
                     # if subclass implemented the method but returned nothing (e.g. `pass` -> None), skip setting Authorization
