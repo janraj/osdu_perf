@@ -1,4 +1,3 @@
-# osdu_perf/__init__.py
 """
 OSDU Performance Testing Framework - Core Library
 """
@@ -10,7 +9,7 @@ from .core.auth import AzureTokenManager
 from .locust.user_base import PerformanceUser
 from .utils.environment import detect_environment
 
-__version__ = "1.0.5"
+__version__ = "1.0.1"
 __author__ = "Janraj CJ"
 __email__ = "janrajcj@microsoft.com"
 

@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.0",
+    version="1.0.1",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",

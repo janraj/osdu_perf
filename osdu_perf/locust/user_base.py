@@ -44,7 +44,11 @@ class PerformanceUser(HttpUser):
    
             if hasattr(service, 'prehook') and callable(service.prehook):
                 try:
-                    service.prehook()
+                    service.prehook(
+                        headers=header, 
+                        partition=self.input_handler.partition,
+                        base_url=self.input_handler.base_url
+                    )
                 except Exception as e:
                     self.logger.error(f"Service prehook failed: {e}")
                     continue  # Skip this service if prehook fails
@@ -62,6 +66,10 @@ class PerformanceUser(HttpUser):
 
             if hasattr(service, 'posthook') and callable(service.posthook):
                 try:
-                    service.posthook()
+                    service.posthook(
+                        headers=header,
+                        partition=self.input_handler.partition,
+                        base_url=self.input_handler.base_url
+                    )
                 except Exception as e:
                     self.logger.error(f"Service posthook failed: {e}")
