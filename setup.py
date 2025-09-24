@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.1",
+    version="1.0.16",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
@@ -57,7 +57,7 @@ setup(
     },
     include_package_data=True,
     package_data={
-        "osdu_perf": ["templates/*.py"],
+        "osdu_perf": ["*_template.py"],
     },
     license="MIT",
     zip_safe=False,
