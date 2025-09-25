@@ -924,12 +924,10 @@ def run_azure_load_tests(args):
     
     This function focuses purely on:
     1. Creating Azure Load Test resources via REST API
-    2. Finding and copying perf_test.py files 
+    2. Delegating file handling to AzureLoadTestRunner.setup_test_files()
     3. No Locust imports or dependencies to avoid monkey patching issues
     """
     import os
-    import shutil
-    import glob
     from datetime import datetime
     
     print("🚀 Starting Azure Load Test Setup (Locust-independent)")
@@ -989,80 +987,25 @@ def run_azure_load_tests(args):
     print("✅ Azure Load Test resource created successfully!")
     print("")
     
-    # Find perf_test.py files in the specified directory
+    # Get test directory from args
     test_directory = getattr(args, 'directory', '.')
-    print(f"🔍 Searching for perf_*_test.py files in: {test_directory}")
     
-    # Search patterns for performance test files
-    search_patterns = [
-        os.path.join(test_directory, "perf_*_test.py"),
-        os.path.join(test_directory, "**", "perf_*_test.py"),
-        os.path.join(test_directory, "perf_*test.py"),
-        os.path.join(test_directory, "**", "perf_*test.py")
-    ]
-    
-    test_files = []
-    for pattern in search_patterns:
-        found_files = glob.glob(pattern, recursive=True)
-        test_files.extend(found_files)
-    
-    # Remove duplicates and sort
-    test_files = sorted(list(set(test_files)))
-    
-    if not test_files:
-        print("❌ No perf_*_test.py files found!")
-        print("   Make sure you have performance test files following the naming pattern:")
-        print("   - perf_storage_test.py")
-        print("   - perf_search_test.py") 
-        print("   - etc.")
+    # Setup test files (find, copy, upload) using the runner
+    print("🔄 Setting up test files...")
+    try:
+        setup_success = runner.setup_test_files(test_name, test_directory)
+        if setup_success:
+            print("")
+            print("🎉 Azure Load Test Setup Complete!")
+            print("=" * 60)
+        else:
+            print("")
+            print("⚠️ Azure Load Test Setup partially completed with issues")
+            print("=" * 60)
+            sys.exit(1)
+    except Exception as e:
+        print(f"❌ Failed to setup test files: {e}")
         sys.exit(1)
-    
-    print(f"✅ Found {len(test_files)} performance test files:")
-    for test_file in test_files:
-        rel_path = os.path.relpath(test_file, test_directory)
-        print(f"   • {rel_path}")
-    print("")
-    
-    # Create output directory for processed test files
-    output_dir = os.path.join(test_directory, f"azure_load_test_{test_name}")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print(f"📁 Creating test package in: {output_dir}")
-    
-    # Copy test files to output directory
-    copied_files = []
-    for test_file in test_files:
-        filename = os.path.basename(test_file)
-        dest_path = os.path.join(output_dir, filename)
-        
-        try:
-            shutil.copy2(test_file, dest_path)
-            copied_files.append(dest_path)
-            print(f"   ✅ Copied: {filename}")
-        except Exception as e:
-            print(f"   ❌ Failed to copy {filename}: {e}")
-    
-    if not copied_files:
-        print("❌ No test files were successfully copied!")
-        sys.exit(1)
-    
-    print("")
-    print("🎉 Azure Load Test Setup Complete!")
-    print("=" * 60)
-    print(f"📊 Test Resource: {loadtest_name}")
-    print(f"🌐 Resource Group: {args.resource_group}")
-    print(f"📍 Location: {args.location}")
-    print(f"📁 Test Files Directory: {output_dir}")
-    print(f"📝 Test Files: {len(copied_files)} files")
-    print("")
-    print("💡 Next Steps:")
-    print("   1. Review the copied test files in the output directory")
-    print("   2. Configure any additional test parameters as needed")
-    print("   3. Upload test files to your Azure Load Testing resource")
-    print("   4. Run the load test through Azure Portal or Azure CLI")
-    print("")
-    print("🔗 Azure Load Testing Portal:")
-    print(f"   https://portal.azure.com/#@{args.subscription_id}/resource/subscriptions/{args.subscription_id}/resourceGroups/{args.resource_group}/providers/Microsoft.LoadTestService/loadtests/{loadtest_name}")
 
 
 def main():
