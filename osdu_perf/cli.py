@@ -1036,6 +1036,40 @@ def run_azure_load_tests(args):
                 print(f"⚠️ Warning: Failed to setup OSDU entitlements: {e}")
                 print("📝 You may need to setup entitlements manually")
             
+            # Trigger the load test execution
+            print("🚀 Starting load test execution...")
+            try:
+                # Create a display name that fits Azure Load Testing constraints (2-50 characters)
+                timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
+                base_name = test_name[:25] if len(test_name) > 25 else test_name  # Limit base name
+                execution_display_name = f"OSDU-{base_name}-{timestamp}"
+                
+                # Ensure total length doesn't exceed 50 characters
+                if len(execution_display_name) > 50:
+                    # Truncate base_name further if needed
+                    max_base_length = 50 - len(f"OSDU--{timestamp}")
+                    base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
+                    execution_display_name = f"OSDU-{base_name}-{timestamp}"
+                
+                execution_result = runner.run_test(
+                    test_name=test_name,
+                    display_name=execution_display_name
+                )
+                
+                if execution_result:
+                    execution_id = execution_result.get('testRunId', execution_result.get('name', execution_result.get('id', 'unknown')))
+                    print("✅ Load test execution started successfully!")
+                    print(f"   📊 Execution ID: {execution_id}")
+                    print(f"   📊 Display Name: {execution_display_name} (length: {len(execution_display_name)})")
+                    print(f"   🌐 Monitor progress in Azure Portal:")
+                    print(f"       https://portal.azure.com/#@microsoft.onmicrosoft.com/resource/subscriptions/{args.subscription_id}/resourceGroups/{args.resource_group}/providers/Microsoft.LoadTestService/loadtests/{loadtest_name}/overview")
+                else:
+                    print("❌ Failed to start load test execution")
+                    print("📝 Check Azure Load Testing resource in portal for manual execution")
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to start load test execution: {e}")
+                print("📝 You can manually start the test from Azure Portal")
+            
             print("")
             print("🎉 Azure Load Test Setup Complete!")
             print("=" * 60)

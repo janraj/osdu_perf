@@ -963,7 +963,7 @@ class AzureLoadTestRunner:
 
     def run_test(self, test_name: str, display_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        Start a test execution using Azure Load Testing REST API.
+        Start a test execution using Azure Load Testing Data Plane API.
         
         Args:
             test_name: Name of the test to run
@@ -973,26 +973,65 @@ class AzureLoadTestRunner:
             Dict[str, Any]: The test execution data, or None if failed
         """
         try:
-            self.logger.info(f"🚀 Starting test execution for '{test_name}'...")
+            self.logger.info(f"🚀 Starting test execution for '{test_name}' using Data Plane API...")
             
-            # Create execution configuration
+            # Get data plane URL and token
+            data_plane_url = self._get_data_plane_url()
+            data_plane_token = self._get_data_plane_token()
+            
+            # Create execution configuration with proper display name validation
+            timestamp = int(time.time())
+            
+            # Ensure display name meets Azure Load Testing requirements (2-50 characters)
+            if display_name:
+                # Use provided display name but ensure it meets length requirements
+                if len(display_name) < 2:
+                    display_name = f"{display_name}-run"
+                elif len(display_name) > 50:
+                    display_name = display_name[:47] + "..."
+            else:
+                # Generate a display name that fits within limits
+                base_name = test_name[:20] if len(test_name) > 20 else test_name
+                display_name = f"{base_name}-{timestamp}"
+                # Ensure it's within the 50 character limit
+                if len(display_name) > 50:
+                    # Truncate the base name to fit
+                    max_base_length = 50 - len(f"-{timestamp}")
+                    base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
+                    display_name = f"{base_name}-{timestamp}"
+            
             execution_config = {
-                "displayName": display_name or f"{test_name}-run-{int(time.time())}"
+                "displayName": display_name
             }
             
-            # Start test execution using Management API
-            execution_url = f"https://management.azure.com/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group_name}/providers/Microsoft.LoadTestService/loadtests/{self.load_test_name}/tests/{test_name}/executions?api-version=2022-12-01"
+            self.logger.info(f"🏷️  Using display name: '{display_name}' (length: {len(display_name)})")
+            
+            # Start test execution using Data Plane API  
+            execution_url = f"{data_plane_url}/test-runs/{test_name}-run-{timestamp}?api-version={self.api_version}"
             
             headers = {
-                "Authorization": f"Bearer {self._get_token()}",
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {data_plane_token}",
+                "Content-Type": "application/merge-patch+json"
             }
             
-            response = requests.post(execution_url, headers=headers, json=execution_config, timeout=30)
+            # Build the test run configuration
+            test_run_config = {
+                "testId": test_name,
+                "displayName": execution_config["displayName"],
+                "description": f"Load test execution for {test_name} via OSDU Performance Framework"
+            }
+            
+            response = requests.patch(execution_url, headers=headers, json=test_run_config, timeout=30)
+            
+            # Debug response
+            self.logger.info(f"Test execution response status: {response.status_code}")
+            if response.status_code not in [200, 201]:
+                self.logger.error(f"Response headers: {dict(response.headers)}")
+                self.logger.error(f"Response text: {response.text}")
             
             if response.status_code in [200, 201]:
                 result = response.json() if response.content else {}
-                execution_id = result.get('name', 'unknown')
+                execution_id = result.get('testRunId', result.get('name', 'unknown'))
                 self.logger.info(f"✅ Test execution started successfully - Execution ID: {execution_id}")
                 return result
             else:
