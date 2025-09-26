@@ -81,6 +81,45 @@ class AzureLoadTestRunner:
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
     
+    def _convert_time_to_seconds(self, time_str: str) -> int:
+        """
+        Convert time string to seconds for Azure Load Testing.
+        
+        Args:
+            time_str: Time string like "60s", "5m", "1h", or just "60"
+            
+        Returns:
+            int: Time in seconds
+        """
+        if not time_str:
+            return 60  # Default to 60 seconds
+            
+        time_str = str(time_str).strip().lower()
+        
+        # If it's already just a number, assume seconds
+        if time_str.isdigit():
+            return int(time_str)
+        
+        # Parse time with units
+        import re
+        match = re.match(r'^(\d+)([smh]?)$', time_str)
+        if not match:
+            self.logger.warning(f"Invalid time format '{time_str}', defaulting to 60 seconds")
+            return 60
+            
+        value, unit = match.groups()
+        value = int(value)
+        
+        if unit == 's' or unit == '':  # seconds (default)
+            return value
+        elif unit == 'm':  # minutes
+            return value * 60
+        elif unit == 'h':  # hours
+            return value * 3600
+        else:
+            self.logger.warning(f"Unknown time unit '{unit}', defaulting to 60 seconds")
+            return 60
+    
     def _initialize_credential(self) -> AzureCliCredential:
         """Initialize Azure CLI credential."""
         try:
@@ -109,13 +148,21 @@ class AzureLoadTestRunner:
             # Fallback to management token if data plane scope fails
             return self._get_access_token()
 
-    def _get_access_token(self) -> str:
-        """Get Azure management API access token."""
+    def _get_access_token(self, resource: str = "https://management.azure.com/.default") -> str:
+        """
+        Get Azure API access token for specified resource.
+        
+        Args:
+            resource: The resource URL to get token for (default: Azure Management API)
+        
+        Returns:
+            str: Access token
+        """
         try:
-            token = self._credential.get_token("https://management.azure.com/.default")
+            token = self._credential.get_token(resource)
             return token.token
         except Exception as e:
-            self.logger.error(f"❌ Failed to get access token: {e}")
+            self.logger.error(f"❌ Failed to get access token for {resource}: {e}")
             raise
     
     def _get_token(self) -> str:
@@ -432,13 +479,29 @@ class AzureLoadTestRunner:
             self.logger.error(f"❌ (REST) Error getting load test info: {e}")
             raise
 
-    def create_test(self, test_name: str, test_files: List[Path]) -> Optional[Dict[str, Any]]:
+    def create_test(self, test_name: str, test_files: List[Path], 
+                   host: Optional[str] = None,
+                   partition: Optional[str] = None, 
+                   app_id: Optional[str] = None,
+                   token: Optional[str] = None,
+                   users: int = 10,
+                   spawn_rate: int = 2,
+                   run_time: str = "60s",
+                   engine_instances: int = 1) -> Optional[Dict[str, Any]]:
         """
-        Create a test using Azure Load Testing Data Plane API (like working samplejan.py).
+        Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
         Args:
             test_name: Name of the test to create
             test_files: List of test files to upload with the test
+            host: OSDU host URL (e.g., https://your-osdu-host.com)
+            partition: OSDU data partition ID (e.g., opendes)
+            app_id: Azure AD Application ID for OSDU authentication
+            token: Bearer token for OSDU authentication
+            users: Number of concurrent users for load test
+            spawn_rate: User spawn rate per second
+            run_time: Test duration (e.g., "60s", "5m", "1h")
+            engine_instances: Number of Azure Load Testing engine instances
             
         Returns:
             Dict[str, Any]: The created test data, or None if failed
@@ -458,26 +521,48 @@ class AzureLoadTestRunner:
                 "Content-Type": "application/merge-patch+json"
             }
             
-            # Locust test configuration (following samplejan.py structure)
+            # Locust test configuration
             # Ensure displayName is within 2-50 character limit
             display_name = f"OSDU-{test_name}"
             if len(display_name) > 50:
                 display_name = f"OSDU-{test_name[:40]}"  # Keep within 50 char limit
             
+            # Build environment variables for OSDU configuration
+            environment_variables = {}
+            secrets = {}
+            
+            # OSDU Configuration Parameters using Locust convention
+            if host:
+                environment_variables["LOCUST_HOST"] = host
+            if partition:
+                environment_variables["PARTITION"] = partition
+            if app_id:
+                environment_variables["APPID"] = app_id
+            
+            
+            # Load Test Parameters - convert run_time to seconds integer
+            environment_variables["LOCUST_USERS"] = str(users)
+            environment_variables["LOCUST_SPAWN_RATE"] = str(spawn_rate)
+            environment_variables["LOCUST_RUN_TIME"] = str(self._convert_time_to_seconds(run_time))
+            
+            # Additional OSDU-specific environment variables that tests might need
+            environment_variables["OSDU_ENV"] = "performance_test"
+            environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
+            
             body = {
                 "displayName": display_name,
-                "description": "Load test for OSDU performance using Locust framework",
+                "description": f"Load test for OSDU performance using Locust framework - {users} users, {spawn_rate} spawn rate, {run_time} duration",
                 "kind": "Locust",  # Specify Locust as the testing framework
                 "loadTestConfiguration": {
-                    "engineInstances": 2,
+                    "engineInstances": engine_instances,
                     "splitAllCSVs": False,
                     "quickStartTest": False
                 },
                 "passFailCriteria": {
                     "passFailMetrics": {}
                 },
-                "environmentVariables": {},
-                "secrets": {}
+                "environmentVariables": environment_variables,
+                "secrets": secrets
             }
             
             # Create the test
@@ -618,7 +703,12 @@ class AzureLoadTestRunner:
                 self.logger.info(f"📁 Uploading file: {file_path.name}")
                 
                 # Determine file type - Locust scripts should use JMX_FILE type
-                file_type = "JMX_FILE" if file_path.name.endswith('.py') and 'perf' in file_path.name.lower() else "ADDITIONAL_ARTIFACTS"
+                # JMX_FILE: Main test scripts locustfile.py
+                # ADDITIONAL_ARTIFACTS: Supporting files (requirements.txt, utilities, perf.*test.py)
+                if file_path.name.lower() == 'locustfile.py':
+                    file_type = "JMX_FILE"  # Main Locust configuration file
+                else:
+                    file_type = "ADDITIONAL_ARTIFACTS"  # All other files (requirements.txt, perf_.*_test.py)
                 
                 # Upload file using direct data plane API
                 url = f"{data_plane_url}/tests/{test_name}/files/{file_path.name}?api-version={self.api_version}&fileType={file_type}"
@@ -657,13 +747,29 @@ class AzureLoadTestRunner:
             
         return uploaded_files
 
-    def setup_test_files(self, test_name: str, test_directory: str = '.') -> bool:
+    def setup_test_files(self, test_name: str, test_directory: str = '.', 
+                        host: Optional[str] = None,
+                        partition: Optional[str] = None,
+                        app_id: Optional[str] = None, 
+                        token: Optional[str] = None,
+                        users: int = 10,
+                        spawn_rate: int = 2,
+                        run_time: str = "60s",
+                        engine_instances: int = 1) -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         
         Args:
             test_name: Name of the test for directory creation
             test_directory: Directory to search for test files
+            host: OSDU host URL (e.g., https://your-osdu-host.com)
+            partition: OSDU data partition ID (e.g., opendes)
+            app_id: Azure AD Application ID for OSDU authentication
+            token: Bearer token for OSDU authentication
+            users: Number of concurrent users for load test
+            spawn_rate: User spawn rate per second
+            run_time: Test duration (e.g., "60s", "5m", "1h")
+            engine_instances: Number of Azure Load Testing engine instances
             
         Returns:
             bool: True if setup completed successfully
@@ -673,14 +779,16 @@ class AzureLoadTestRunner:
         import glob
         
         try:
-            print(f"🔍 Searching for perf_*_test.py files in: {test_directory}")
+            print(f"🔍 Searching for test files in: {test_directory}")
             
-            # Search patterns for performance test files
+            # Search patterns for performance test files and locustfile
             search_patterns = [
                 os.path.join(test_directory, "perf_*_test.py"),
                 os.path.join(test_directory, "**", "perf_*_test.py"),
                 os.path.join(test_directory, "perf_*test.py"),
-                os.path.join(test_directory, "**", "perf_*test.py")
+                os.path.join(test_directory, "**", "perf_*test.py"),
+                os.path.join(test_directory, "locustfile.py"),
+                os.path.join(test_directory, "requirements.txt")
             ]
             
             test_files = []
@@ -688,15 +796,38 @@ class AzureLoadTestRunner:
                 found_files = glob.glob(pattern, recursive=True)
                 test_files.extend(found_files)
             
+            # If no locustfile.py found in user directory, copy the OSDU library version
+            has_locustfile = any('locustfile.py' in f for f in test_files)
+            if not has_locustfile:
+                print("🔍 No locustfile.py found in test directory, using OSDU library version...")
+                try:
+                    import pkg_resources
+                    # Try to find the OSDU locustfile.py from the package
+                    osdu_locustfile = pkg_resources.resource_filename('osdu_perf.core', 'locustfile.py')
+                    if os.path.exists(osdu_locustfile):
+                        test_files.append(osdu_locustfile)
+                        print(f"   ✅ Added OSDU locustfile.py: {osdu_locustfile}")
+                except (ImportError, Exception) as e:
+                    print(f"   ⚠️  Could not find OSDU locustfile.py: {e}")
+                    # Fallback: look for it in the same directory as this file
+                    current_dir = os.path.dirname(__file__)
+                    fallback_locustfile = os.path.join(current_dir, 'locustfile.py')
+                    if os.path.exists(fallback_locustfile):
+                        test_files.append(fallback_locustfile)
+                        print(f"   ✅ Added fallback locustfile.py: {fallback_locustfile}")
+                    else:
+                        print(f"   ⚠️  No locustfile.py found, tests may need manual configuration")
+            
             # Remove duplicates and sort
             test_files = sorted(list(set(test_files)))
             
             if not test_files:
-                print("❌ No perf_*_test.py files found!")
-                print("   Make sure you have performance test files following the naming pattern:")
+                print("❌ No test files found!")
+                print("   Make sure you have performance test files in one of these patterns:")
                 print("   - perf_storage_test.py")
-                print("   - perf_search_test.py") 
-                print("   - etc.")
+                print("   - perf_search_test.py")
+                print("   - locustfile.py (optional, will use OSDU default if not found)")
+                print("   - requirements.txt ")
                 return False
             
             print(f"✅ Found {len(test_files)} performance test files:")
@@ -733,8 +864,26 @@ class AzureLoadTestRunner:
             
             # Create the test with files using the new Azure Load Testing workflow
             print("")
-            print(f"🧪 Creating test '{test_name}' with files using Azure Load Testing workflow...")
-            test_result = self.create_test(test_name, path_objects)
+            print(f"🧪 Creating test '{test_name}' with files and OSDU configuration...")
+            print(f"   Host: {host or 'Not provided'}")
+            print(f"   Partition: {partition or 'Not provided'}")
+            print(f"   Users: {users}")
+            print(f"   Spawn Rate: {spawn_rate}/sec")
+            print(f"   Run Time: {run_time}")
+            print(f"   Engine Instances: {engine_instances}")
+            
+            test_result = self.create_test(
+                test_name=test_name, 
+                test_files=path_objects,
+                host=host,
+                partition=partition, 
+                app_id=app_id,
+                token=token,
+                users=users,
+                spawn_rate=spawn_rate,
+                run_time=run_time,
+                engine_instances=engine_instances
+            )
             if not test_result:
                 print("❌ Failed to create test in Azure Load Test resource")
                 return False
@@ -752,9 +901,7 @@ class AzureLoadTestRunner:
             print(f"🧪 Test Type: Locust")
             print("")
             print("💡 Next Steps:")
-            print("   1. Review the test configuration in Azure Portal")
-            print("   2. Configure test parameters (users, duration, etc.)")
-            print("   3. Run the load test through Azure Portal or Azure CLI")
+            print("   1. Run the load test through Azure Portal or Azure CLI")
             print("")
             print("🔗 Azure Load Testing Portal:")
             print(f"   https://portal.azure.com/#@{self.subscription_id}/resource/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group_name}/providers/Microsoft.LoadTestService/loadtests/{self.load_test_name}")
@@ -1090,6 +1237,180 @@ class AzureLoadTestRunner:
                 
         except Exception as e:
             self.logger.error(f"❌ Error creating test configuration: {e}")
+            return False
+
+    def get_app_id_from_load_test_name(self, load_test_name: str) -> str:
+        """
+        Resolve the application ID from a load test name by finding the associated Object (principal) ID.
+
+        Args:
+            load_test_name: Name of the load test instance
+
+        Returns:
+            The application ID associated with the load test
+
+        Raises:
+            Exception: If the load test name or associated app ID cannot be found
+        """
+        try:
+            # Step 1: Find Object (principal) ID from load test name
+            principal_id = self._get_principal_id_from_load_test(load_test_name)
+            
+            # Step 2: Use Object ID to find the corresponding App ID
+            app_id = self._get_app_id_from_principal_id(principal_id)
+            
+            return app_id
+            
+        except Exception as e:
+            self.logger.error(f"Error resolving app ID for load test '{load_test_name}': {e}")
+            raise
+    
+    def _get_principal_id_from_load_test(self, load_test_name: str) -> str:
+        """
+        Internal method to get the Object (principal) ID from load test name.
+        
+        Args:
+            load_test_name: Name of the load test instance
+            
+        Returns:
+            The Object (principal) ID
+        """
+        try:
+            # Use Azure Resource Manager API to get load test resource details
+            token = self._get_access_token()
+            url = (f"{self.management_base_url}/subscriptions/{self.subscription_id}"
+                  f"/resourceGroups/{self.resource_group_name}"
+                  f"/providers/Microsoft.LoadTestService/loadtests/{load_test_name}"
+                  f"?api-version={self.api_version}")
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                load_test_data = response.json()
+                # Extract principal ID from the managed identity or service principal
+                if 'identity' in load_test_data and 'principalId' in load_test_data['identity']:
+                    return load_test_data['identity']['principalId']
+                else:
+                    self.logger.error(f"No principal ID found for load test '{load_test_name}'")
+                    raise ValueError(f"No principal ID found for load test '{load_test_name}'")
+            else:
+                self.logger.error(f"Failed to get load test details: {response.status_code} - {response.text}")
+                raise Exception(f"Failed to get load test details: {response.status_code}")
+                
+        except Exception as e:
+            self.logger.error(f"Error getting principal ID from load test '{load_test_name}': {e}")
+            raise
+    
+    def _get_app_id_from_principal_id(self, principal_id: str) -> str:
+        """
+        Internal method to get App ID from Object (principal) ID using Microsoft Graph API.
+        
+        Args:
+            principal_id: The Object (principal) ID
+            
+        Returns:
+            The application ID
+        """
+        try:
+            # Use Microsoft Graph API to get service principal details
+            token = self._get_access_token(resource="https://graph.microsoft.com/")
+            url = f"https://graph.microsoft.com/v1.0/servicePrincipals/{principal_id}"
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                service_principal = response.json()
+                if 'appId' in service_principal:
+                    return service_principal['appId']
+                else:
+                    self.logger.error(f"No appId found for principal ID '{principal_id}'")
+                    raise ValueError(f"No appId found for principal ID '{principal_id}'")
+            else:
+                self.logger.error(f"Failed to get service principal details: {response.status_code} - {response.text}")
+                raise Exception(f"Failed to get service principal details: {response.status_code}")
+                
+        except Exception as e:
+            self.logger.error(f"Error getting app ID from principal ID '{principal_id}': {e}")
+            raise
+
+    def setup_load_test_entitlements(self, load_test_name: str, host: str, partition: str, token: str) -> bool:
+        """
+        Wrapper function that sets up entitlements for a load test application.
+        
+        This function:
+        1. Resolves the app ID from the load test name
+        2. Creates an Entitlement object with OSDU configuration
+        3. Creates entitlements for the load test app
+        
+        Args:
+            load_test_name: Name of the load test instance
+            host: OSDU host URL (e.g., https://your-osdu-host.com)
+            partition: OSDU data partition ID (e.g., opendes)
+            token: Bearer token for OSDU authentication
+            
+        Returns:
+            bool: True if entitlements were set up successfully
+        """
+        try:
+            self.logger.info(f"🔧 Setting up entitlements for load test: {load_test_name}")
+            
+            # Step 1: Get app ID from load test name
+            self.logger.info("🔍 Resolving application ID from load test...")
+            app_id = self.get_app_id_from_load_test_name(load_test_name)
+            self.logger.info(f"✅ Resolved app ID: {app_id}")
+            
+            # Step 2: Import and create Entitlement object
+            from .entitlement import Entitlement
+            
+            self.logger.info("🔧 Creating entitlement manager...")
+            entitlement = Entitlement(
+                host=host,
+                partition=partition,
+                load_test_app_id=app_id,
+                token=token
+            )
+            
+            # Step 3: Create entitlements for the load test app
+            self.logger.info("🔐 Creating entitlements for load test application...")
+            entitlement_result = entitlement.create_entitlment_for_load_test_app()
+            
+            if entitlement_result['success']:
+                self.logger.info(f"✅ Successfully set up entitlements for load test '{load_test_name}'")
+                self.logger.info(f"   App ID: {app_id}")
+                self.logger.info(f"   Partition: {partition}")
+                self.logger.info(f"   Result: {entitlement_result['message']}")
+                self.logger.info(f"   Groups processed:")
+                
+                for group_result in entitlement_result['results']:
+                    group_name = group_result['group']
+                    if group_result['conflict']:
+                        self.logger.info(f"     • {group_name} (already existed)")
+                    elif group_result['success']:
+                        self.logger.info(f"     • {group_name} (newly added)")
+                    else:
+                        self.logger.warning(f"     • {group_name} (failed: {group_result['message']})")
+                        
+                return True
+            else:
+                self.logger.error(f"❌ Failed to set up entitlements for load test '{load_test_name}'")
+                self.logger.error(f"   Result: {entitlement_result['message']}")
+                for group_result in entitlement_result['results']:
+                    if not group_result['success']:
+                        self.logger.error(f"   • {group_result['group']}: {group_result['message']}")
+                return False
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to set up entitlements for load test '{load_test_name}': {e}")
             return False
 
 

@@ -988,13 +988,54 @@ def run_azure_load_tests(args):
     print("")
     
     # Get test directory from args
-    test_directory = getattr(args, 'directory', '.')
+    test_directory = getattr(args, 'directory', './perf_tests')
     
-    # Setup test files (find, copy, upload) using the runner
-    print("🔄 Setting up test files...")
+    # Extract OSDU and load test parameters from args
+    host = getattr(args, 'host', None)
+    partition = getattr(args, 'partition', None)
+    app_id = getattr(args, 'app_id', None)
+    token = getattr(args, 'token', None)
+    users = getattr(args, 'users', 10)
+    spawn_rate = getattr(args, 'spawn_rate', 2)
+    run_time = getattr(args, 'run_time', '60s')
+    engine_instances = getattr(args, 'engine_instances', 1)
+    
+    # Setup test files (find, copy, upload) using the runner with OSDU parameters
+    print("🔄 Setting up test files with OSDU configuration...")
     try:
-        setup_success = runner.setup_test_files(test_name, test_directory)
+        setup_success = runner.setup_test_files(
+            test_name=test_name,
+            test_directory=test_directory,
+            host=host,
+            partition=partition,
+            app_id=app_id,
+            token=token,
+            users=users,
+            spawn_rate=spawn_rate,
+            run_time=run_time,
+            engine_instances=engine_instances
+        )
         if setup_success:
+            print("✅ Test files setup completed successfully!")
+            
+            # Setup OSDU entitlements for the load test
+            print("🔐 Setting up OSDU entitlements for load test...")
+            try:
+                entitlement_success = runner.setup_load_test_entitlements(
+                    load_test_name=loadtest_name,
+                    host=host,
+                    partition=partition,
+                    token=token
+                )
+                if entitlement_success:
+                    print("✅ OSDU entitlements setup completed successfully!")
+                else:
+                    print("⚠️ Warning: OSDU entitlements setup completed with some issues")
+                    print("📝 Check logs above for details. You may need to setup some entitlements manually")
+            except Exception as e:
+                print(f"⚠️ Warning: Failed to setup OSDU entitlements: {e}")
+                print("📝 You may need to setup entitlements manually")
+            
             print("")
             print("🎉 Azure Load Test Setup Complete!")
             print("=" * 60)
@@ -1074,6 +1115,7 @@ Examples:
     azure_parser.add_argument('--location', required=True, help='Azure region (e.g., eastus, westus2)')
     
     # OSDU Connection Parameters (Required) 
+    azure_parser.add_argument('--host', required=True, help='OSDU host URL (e.g., https://your-osdu-host.com)')
     azure_parser.add_argument('--partition', '-p', required=True, help='OSDU data partition ID (e.g., opendes)')
     azure_parser.add_argument('--token', required=True, help='Bearer token for OSDU authentication')
     azure_parser.add_argument('--app-id', required=True, help='Azure AD Application ID for OSDU authentication')
@@ -1194,6 +1236,7 @@ Examples:
     azure_parser.add_argument('--location', required=True, help='Azure region (e.g., eastus, westus2)')
     
     # OSDU Connection Parameters (Required) 
+    azure_parser.add_argument('--host', required=True, help='OSDU host URL (e.g., https://your-osdu-host.com)')
     azure_parser.add_argument('--partition', '-p', required=True, help='OSDU data partition ID (e.g., opendes)')
     azure_parser.add_argument('--token', required=True, help='Bearer token for OSDU authentication')
     azure_parser.add_argument('--app-id', required=True, help='Azure AD Application ID for OSDU authentication')
