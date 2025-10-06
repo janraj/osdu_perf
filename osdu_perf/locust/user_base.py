@@ -22,6 +22,7 @@ class PerformanceUser(HttpUser):
     
     def on_start(self):
         """Initialize services and input handling"""
+        self.logger.info(f"PerformanceUser on_start called subscription id is {self.environment}")
         self.input_handler = InputHandler(self.environment)
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()

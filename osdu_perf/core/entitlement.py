@@ -166,7 +166,8 @@ class Entitlement:
         """
         groups = [
             f"users@{self.partition}.dataservices.energy",
-            f"users.datalake.editors@{self.partition}.dataservices.energy"
+            f"users.datalake.editors@{self.partition}.dataservices.energy",
+            f"users.datalake.admins@{self.partition}.dataservices.energy"
         ]
         
         results = []

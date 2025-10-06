@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Optional
 
 # Avoid importing the main package to prevent Locust imports
-__version__ = "1.0.14"
+__version__ = "1.0.27"
 
 
 def _backup_existing_files(project_name: str, service_name: str) -> None:
@@ -135,12 +135,12 @@ def init_project(service_name: str, force: bool = False) -> None:
     else:
         print(f"⏭️  Skipped existing: README.md")
     
-    # Create azureloadtest.py for Azure Load Testing
-    azureloadtest_path = os.path.join(project_name, "azureloadtest.py")
-    if _should_create_file(azureloadtest_path, choice):
-        create_azureloadtest_file(azureloadtest_path, service_name)
+    # Create locustfile.py for direct Locust testing
+    locustfile_path = os.path.join(project_name, "locustfile.py")
+    if _should_create_file(locustfile_path, choice):
+        create_locustfile_template(locustfile_path, [service_name])
     else:
-        print(f"⏭️  Skipped existing: azureloadtest.py")
+        print(f"⏭️  Skipped existing: locustfile.py")
     
     print(f"\n✅ Project {'updated' if choice == 's' else 'initialized'} successfully in {project_name}/")
     if choice != 's':
@@ -149,9 +149,9 @@ def init_project(service_name: str, force: bool = False) -> None:
     print(f"   1. cd {project_name}")
     print("   2. pip install -r requirements.txt")
     print(f"   3. Edit {test_filename} to implement your test scenarios")
-    print(f"   4. Run local tests: osdu-perf run local --host <host> --users 10 --run-time 60s")
-    print(f"   5. Or run Azure Load Tests: python azureloadtest.py --subscription-id <sub-id> --resource-group <rg> --location <location>")
-    print(f"   6. Or use web UI: osdu-perf run local --web-ui --host <your-api-host>")
+    print(f"   4. Run local tests: osdu-perf run local --host <host> --partition <partition> --token <token>")
+    print(f"   5. Run Azure Load Tests: osdu_perf run azure_loadtest --subscription-id <sub-id> --resource-group <rg> --location <location> --host <host> --partition <partition> --token <token> --app-id <app-id>")
+
 
 
 def create_service_test_file(service_name: str, output_path: str) -> None:
@@ -1042,19 +1042,28 @@ def run_azure_load_tests(args):
                 # Create a display name that fits Azure Load Testing constraints (2-50 characters)
                 timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
                 base_name = test_name[:25] if len(test_name) > 25 else test_name  # Limit base name
-                execution_display_name = f"OSDU-{base_name}-{timestamp}"
+                execution_display_name = f"{base_name}-{timestamp}"
                 
                 # Ensure total length doesn't exceed 50 characters
                 if len(execution_display_name) > 50:
                     # Truncate base_name further if needed
-                    max_base_length = 50 - len(f"OSDU--{timestamp}")
+                    max_base_length = 50 - len(f"{timestamp}")
                     base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
-                    execution_display_name = f"OSDU-{base_name}-{timestamp}"
+                    execution_display_name = f"{base_name}-{timestamp}"
                 
+                execution_result = runner.run_test(
+                    test_name=test_name,  # Using a default test name for initial run
+                    display_name="demo_tests"
+                )
+                import time
+                print("⏳ Waiting 120 seconds for Azure Load Test to initialize...")
+                time.sleep(120)
+
                 execution_result = runner.run_test(
                     test_name=test_name,
                     display_name=execution_display_name
                 )
+
                 
                 if execution_result:
                     execution_id = execution_result.get('testRunId', execution_result.get('name', execution_result.get('id', 'unknown')))
@@ -1131,13 +1140,13 @@ Examples:
     # Locust Test Parameters (Optional)
     local_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
     local_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    local_parser.add_argument('--run-time', '-t', default='60s', help='Test duration (default: 60s)')
+    local_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     local_parser.add_argument('--locustfile', '-f', help='Specific locustfile to use (optional)')
     local_parser.add_argument('--list-locustfiles', action='store_true', help='List available bundled locustfiles')
-    local_parser.add_argument('--headless', action='store_true', default=True, help='Run in headless mode (default)')
-    local_parser.add_argument('--web-ui', action='store_true', help='Run with web UI (overrides headless)')
+    local_parser.add_argument('--headless', action='store_true', help='Run in headless mode (overrides web UI)')
+    local_parser.add_argument('--web-ui', action='store_true', default=True, help='Run with web UI (default)')
     local_parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     
     # Azure Load Test subcommand
@@ -1162,7 +1171,7 @@ Examples:
     # Test Parameters (Optional)
     azure_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
     azure_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    azure_parser.add_argument('--run-time', '-t', default='60s', help='Test duration (default: 60s)')
+    azure_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     azure_parser.add_argument('--directory', '-d', default='.', help='Directory containing perf_*_test.py files (default: current)')
@@ -1252,13 +1261,13 @@ Examples:
     # Locust Test Parameters (Optional)
     local_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
     local_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    local_parser.add_argument('--run-time', '-t', default='60s', help='Test duration (default: 60s)')
+    local_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     local_parser.add_argument('--locustfile', '-f', help='Specific locustfile to use (optional)')
     local_parser.add_argument('--list-locustfiles', action='store_true', help='List available bundled locustfiles')
-    local_parser.add_argument('--headless', action='store_true', default=True, help='Run in headless mode (default)')
-    local_parser.add_argument('--web-ui', action='store_true', help='Run with web UI (overrides headless)')
+    local_parser.add_argument('--headless', action='store_true', help='Run in headless mode (overrides web UI)')
+    local_parser.add_argument('--web-ui', action='store_true', default=True, help='Run with web UI (default)')
     local_parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
     
     # Azure Load Test subcommand
@@ -1283,7 +1292,7 @@ Examples:
     # Test Parameters (Optional)
     azure_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
     azure_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    azure_parser.add_argument('--run-time', '-t', default='60s', help='Test duration (default: 60s)')
+    azure_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     azure_parser.add_argument('--directory', '-d', default='.', help='Directory containing perf_*_test.py files (default: current)')

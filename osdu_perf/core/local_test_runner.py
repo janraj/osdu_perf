@@ -215,7 +215,8 @@ class OSDUUser(PerformanceUser):
         ]
         
         # Add headless/web-ui options
-        if not (hasattr(args, 'web_ui') and args.web_ui):
+        # Default is web UI, use headless only if explicitly requested
+        if hasattr(args, 'headless') and args.headless:
             locust_cmd.append("--headless")
         
         return locust_cmd
@@ -305,7 +306,8 @@ class OSDUUser(PerformanceUser):
             locust_cmd = self.build_locust_command(args, locustfile_path)
             
             # Print test information
-            is_web_ui = hasattr(args, 'web_ui') and args.web_ui
+            # Default is web UI, headless only if explicitly requested
+            is_web_ui = not (hasattr(args, 'headless') and args.headless)
             self.print_test_info(args, is_web_ui)
             
             # Execute the command

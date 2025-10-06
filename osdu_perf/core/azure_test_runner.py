@@ -523,9 +523,9 @@ class AzureLoadTestRunner:
             
             # Locust test configuration
             # Ensure displayName is within 2-50 character limit
-            display_name = f"OSDU-{test_name}"
+            display_name = test_name
             if len(display_name) > 50:
-                display_name = f"OSDU-{test_name[:40]}"  # Keep within 50 char limit
+                display_name = test_name[:50]  # Keep within 50 char limit
             
             # Build environment variables for OSDU configuration
             environment_variables = {}
@@ -544,6 +544,7 @@ class AzureLoadTestRunner:
             environment_variables["LOCUST_USERS"] = str(users)
             environment_variables["LOCUST_SPAWN_RATE"] = str(spawn_rate)
             environment_variables["LOCUST_RUN_TIME"] = str(self._convert_time_to_seconds(run_time))
+            environment_variables["AZURE_LOAD_TEST"] = "true"
             
             # Additional OSDU-specific environment variables that tests might need
             environment_variables["OSDU_ENV"] = "performance_test"
@@ -553,6 +554,7 @@ class AzureLoadTestRunner:
                 "displayName": display_name,
                 "description": f"Load test for OSDU performance using Locust framework - {users} users, {spawn_rate} spawn rate, {run_time} duration",
                 "kind": "Locust",  # Specify Locust as the testing framework
+                "engineBuiltinIdentityType": "SystemAssigned",
                 "loadTestConfiguration": {
                     "engineInstances": engine_instances,
                     "splitAllCSVs": False,
@@ -579,6 +581,7 @@ class AzureLoadTestRunner:
             test_result = response.json() if response.content else {}
             self.logger.info(f"✅ Locust test '{test_name}' created successfully")
             
+
             # Step 2: Upload test files using data plane API
             uploaded_files = self._upload_files_for_test_dataplane(test_name, test_files, data_plane_url, data_plane_token)
             if uploaded_files:
@@ -779,7 +782,7 @@ class AzureLoadTestRunner:
         import glob
         
         try:
-            print(f"🔍 Searching for test files in: {test_directory}")
+            self.logger.info(f"🔍 Searching for test files in: {test_directory}")
             
             # Search patterns for performance test files and locustfile
             search_patterns = [
@@ -788,7 +791,8 @@ class AzureLoadTestRunner:
                 os.path.join(test_directory, "perf_*test.py"),
                 os.path.join(test_directory, "**", "perf_*test.py"),
                 os.path.join(test_directory, "locustfile.py"),
-                os.path.join(test_directory, "requirements.txt")
+                os.path.join(test_directory, "requirements.txt"),
+                os.path.join(test_directory, "config.yaml")
             ]
             
             test_files = []
@@ -799,78 +803,55 @@ class AzureLoadTestRunner:
             # If no locustfile.py found in user directory, copy the OSDU library version
             has_locustfile = any('locustfile.py' in f for f in test_files)
             if not has_locustfile:
-                print("🔍 No locustfile.py found in test directory, using OSDU library version...")
+                self.logger.info("🔍 No locustfile.py found in test directory, using OSDU library version...")
                 try:
                     import pkg_resources
                     # Try to find the OSDU locustfile.py from the package
                     osdu_locustfile = pkg_resources.resource_filename('osdu_perf.core', 'locustfile.py')
                     if os.path.exists(osdu_locustfile):
                         test_files.append(osdu_locustfile)
-                        print(f"   ✅ Added OSDU locustfile.py: {osdu_locustfile}")
+                        self.logger.info(f"   ✅ Added OSDU locustfile.py: {osdu_locustfile}")
                 except (ImportError, Exception) as e:
-                    print(f"   ⚠️  Could not find OSDU locustfile.py: {e}")
+                    self.logger.warning(f"   ⚠️  Could not find OSDU locustfile.py: {e}")
                     # Fallback: look for it in the same directory as this file
                     current_dir = os.path.dirname(__file__)
                     fallback_locustfile = os.path.join(current_dir, 'locustfile.py')
                     if os.path.exists(fallback_locustfile):
                         test_files.append(fallback_locustfile)
-                        print(f"   ✅ Added fallback locustfile.py: {fallback_locustfile}")
+                        self.logger.info(f"   ✅ Added fallback locustfile.py: {fallback_locustfile}")
                     else:
-                        print(f"   ⚠️  No locustfile.py found, tests may need manual configuration")
+                        self.logger.warning(f"   ⚠️  No locustfile.py found, tests may need manual configuration")
             
             # Remove duplicates and sort
             test_files = sorted(list(set(test_files)))
             
             if not test_files:
-                print("❌ No test files found!")
-                print("   Make sure you have performance test files in one of these patterns:")
-                print("   - perf_storage_test.py")
-                print("   - perf_search_test.py")
-                print("   - locustfile.py (optional, will use OSDU default if not found)")
-                print("   - requirements.txt ")
+                self.logger.error("❌ No test files found!")
+                self.logger.error("   Make sure you have performance test files in one of these patterns:")
+                self.logger.error("   - perf_storage_test.py")
+                self.logger.error("   - perf_search_test.py")
+                self.logger.error("   - locustfile.py (optional, will use OSDU default if not found)")
+                self.logger.error("   - requirements.txt ")
                 return False
             
-            print(f"✅ Found {len(test_files)} performance test files:")
+            self.logger.info(f"✅ Found {len(test_files)} performance test files:")
             for test_file in test_files:
                 rel_path = os.path.relpath(test_file, test_directory)
-                print(f"   • {rel_path}")
-            print("")
-            
-            # Create output directory for processed test files
-            output_dir = os.path.join(test_directory, f"azure_load_test_{test_name}")
-            os.makedirs(output_dir, exist_ok=True)
-            
-            print(f"📁 Creating test package in: {output_dir}")
-            
-            # Copy test files to output directory
-            copied_files = []
-            for test_file in test_files:
-                filename = os.path.basename(test_file)
-                dest_path = os.path.join(output_dir, filename)
-                
-                try:
-                    shutil.copy2(test_file, dest_path)
-                    copied_files.append(dest_path)
-                    print(f"   ✅ Copied: {filename}")
-                except Exception as e:
-                    print(f"   ❌ Failed to copy {filename}: {e}")
-            
-            if not copied_files:
-                print("❌ No test files were successfully copied!")
-                return False
+                self.logger.info(f"   • {rel_path}")
+            self.logger.info("")
             
             # Convert file paths to Path objects for the new workflow
-            path_objects = [Path(f) for f in copied_files]
+            path_objects = [Path(f) for f in test_files]
             
             # Create the test with files using the new Azure Load Testing workflow
-            print("")
-            print(f"🧪 Creating test '{test_name}' with files and OSDU configuration...")
-            print(f"   Host: {host or 'Not provided'}")
-            print(f"   Partition: {partition or 'Not provided'}")
-            print(f"   Users: {users}")
-            print(f"   Spawn Rate: {spawn_rate}/sec")
-            print(f"   Run Time: {run_time}")
-            print(f"   Engine Instances: {engine_instances}")
+            self.logger.info("")
+            self.logger.info(f"🧪 Creating test '{test_name}' with files and OSDU configuration...")
+            self.logger.info(f"   Host: {host or 'Not provided'}")
+            self.logger.info(f"   Partition: {partition or 'Not provided'}")
+            self.logger.info(f"   Users: {users}")
+            self.logger.info(f"   Spawn Rate: {spawn_rate}/sec")
+            self.logger.info(f"   Run Time: {run_time}")
+            self.logger.info(f"   Engine Instances: {engine_instances}")
             
             test_result = self.create_test(
                 test_name=test_name, 
@@ -885,30 +866,24 @@ class AzureLoadTestRunner:
                 engine_instances=engine_instances
             )
             if not test_result:
-                print("❌ Failed to create test in Azure Load Test resource")
+                self.logger.error("❌ Failed to create test in Azure Load Test resource")
                 return False
             
-            print(f"✅ Test '{test_name}' created and files uploaded successfully!")
-            print("🔧 Test is ready with Locust engine type")
+            self.logger.info(f"✅ Test '{test_name}' created and files uploaded successfully!")
+            self.logger.info("🔧 Test is ready with Locust engine type")
             
-            print("")
-            print(f"📊 Test Resource: {self.load_test_name}")
-            print(f"🧪 Test Name: {test_name}")
-            print(f"🌐 Resource Group: {self.resource_group_name}")
-            print(f"📍 Location: {self.location}")
-            print(f"📁 Test Files Directory: {output_dir}")
-            print(f"📝 Test Files: {len(copied_files)} files")
-            print(f"🧪 Test Type: Locust")
-            print("")
-            print("💡 Next Steps:")
-            print("   1. Run the load test through Azure Portal or Azure CLI")
-            print("")
-            print("🔗 Azure Load Testing Portal:")
-            print(f"   https://portal.azure.com/#@{self.subscription_id}/resource/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group_name}/providers/Microsoft.LoadTestService/loadtests/{self.load_test_name}")
+            self.logger.info("")
+            self.logger.info(f"📊 Test Resource: {self.load_test_name}")
+            self.logger.info(f"🧪 Test Name: {test_name}")
+            self.logger.info(f"🌐 Resource Group: {self.resource_group_name}")
+            self.logger.info(f"📍 Location: {self.location}")
+            self.logger.info(f"🧪 Test Type: Locust")
+            self.logger.info("🔗 Azure Load Testing Portal:")
+            self.logger.info(f"   https://portal.azure.com/#@{self.subscription_id}/resource/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group_name}/providers/Microsoft.LoadTestService/loadtests/{self.load_test_name}")
             return True
             
         except Exception as e:
-            print(f"❌ Error setting up test files: {e}")
+            self.logger.error(f"❌ Error setting up test files: {e}")
             return False
 
     def upload_test_files_to_test(self, test_name: str, test_files: List[str]) -> bool:
@@ -961,6 +936,82 @@ class AzureLoadTestRunner:
             self.logger.error(f"❌ Error uploading test files to test '{test_name}': {e}")
             return False
 
+    def _wait_for_test_validation(self, test_name: str, max_wait_time: int = 300) -> bool:
+        """
+        Wait for test script validation to complete before starting execution.
+        
+        Args:
+            test_name: Name of the test to check
+            max_wait_time: Maximum time to wait in seconds (default: 5 minutes)
+            
+        Returns:
+            bool: True if validation completed successfully, False if timeout or error
+        """
+        try:
+            self.logger.info(f"⏳ Checking test script validation status for '{test_name}'...")
+            
+            # Get data plane URL and token
+            data_plane_url = self._get_data_plane_url()
+            data_plane_token = self._get_data_plane_token()
+            
+            # Check test status URL
+            test_status_url = f"{data_plane_url}/tests/{test_name}?api-version={self.api_version}"
+            
+            headers = {
+                "Authorization": f"Bearer {data_plane_token}",
+                "Content-Type": "application/json"
+            }
+            
+            start_time = time.time()
+            wait_interval = 10  # Check every 10 seconds
+            
+            while (time.time() - start_time) < max_wait_time:
+                try:
+                    response = requests.get(test_status_url, headers=headers, timeout=30)
+                    
+                    if response.status_code == 200:
+                        test_data = response.json()
+                        
+                        # Check if test has valid script files
+                        input_artifacts = test_data.get('inputArtifacts', {})
+                        test_script_file = input_artifacts.get('testScriptFileInfo', {})
+                        
+                        # Check if validation is complete (file exists and has validation info)
+                        if test_script_file and test_script_file.get('fileName'):
+                            validation_status = test_script_file.get('validationStatus')
+                            validation_failure_details = test_script_file.get('validationFailureDetails')
+                            
+                            if validation_status == 'VALIDATION_SUCCESS':
+                                self.logger.info(f"✅ Test script validation completed successfully for '{test_name}'")
+                                return True
+                            elif validation_status == 'VALIDATION_FAILURE':
+                                self.logger.error(f"❌ Test script validation failed: {validation_failure_details}")
+                                return False
+                            elif validation_status in ['VALIDATION_INITIATED', 'VALIDATION_IN_PROGRESS', None]:
+                                self.logger.info(f"⏳ Test script validation in progress... (waiting {wait_interval}s)")
+                            else:
+                                self.logger.info(f"⏳ Test script validation status: {validation_status} (waiting {wait_interval}s)")
+                        else:
+                            self.logger.info(f"⏳ Test script not yet available for validation... (waiting {wait_interval}s)")
+                    else:
+                        self.logger.warning(f"⚠️ Could not check test status: {response.status_code}")
+                
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Error checking test validation status: {e}")
+                
+                # Wait before next check
+                time.sleep(wait_interval)
+            
+            # Timeout reached
+            elapsed_time = time.time() - start_time
+            self.logger.warning(f"⚠️ Test script validation timeout after {elapsed_time:.0f} seconds")
+            self.logger.info("📝 Proceeding with test execution anyway - validation may complete during execution")
+            return True  # Return True to allow execution attempt
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error waiting for test validation: {e}")
+            return True  # Return True to allow execution attempt
+
     def run_test(self, test_name: str, display_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Start a test execution using Azure Load Testing Data Plane API.
@@ -974,6 +1025,11 @@ class AzureLoadTestRunner:
         """
         try:
             self.logger.info(f"🚀 Starting test execution for '{test_name}' using Data Plane API...")
+            
+            # Wait for test script validation to complete before starting execution
+            if not self._wait_for_test_validation(test_name):
+                self.logger.error(f"❌ Test script validation failed for '{test_name}'")
+                return None
             
             # Get data plane URL and token
             data_plane_url = self._get_data_plane_url()
@@ -1034,6 +1090,35 @@ class AzureLoadTestRunner:
                 execution_id = result.get('testRunId', result.get('name', 'unknown'))
                 self.logger.info(f"✅ Test execution started successfully - Execution ID: {execution_id}")
                 return result
+            elif response.status_code == 400:
+                # Check if this is the validation error
+                try:
+                    error_response = response.json()
+                    error_code = error_response.get('error', {}).get('code')
+                    error_message = error_response.get('error', {}).get('message', '')
+                    
+                    if error_code == 'MissingValidatedTestScriptFile':
+                        self.logger.warning(f"⚠️ Test script still being validated: {error_message}")
+                        
+                        # Retry the execution once more
+                        self.logger.info("🔄 Retrying test execution after validation wait...")
+                        retry_response = requests.patch(execution_url, headers=headers, json=test_run_config, timeout=30)
+                        
+                        if retry_response.status_code in [200, 201]:
+                            result = retry_response.json() if retry_response.content else {}
+                            execution_id = result.get('testRunId', result.get('name', 'unknown'))
+                            self.logger.info(f"✅ Test execution started successfully on retry - Execution ID: {execution_id}")
+                            return result
+                        else:
+                            self.logger.error(f"❌ Retry also failed: {retry_response.status_code} - {retry_response.text}")
+                            return None
+                    else:
+                        self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
+                        return None
+                except Exception as e:
+                    self.logger.error(f"❌ Error parsing error response: {e}")
+                    self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
+                    return None
             else:
                 self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
                 return None
@@ -1463,9 +1548,18 @@ def main():
     LOAD_TEST_NAME = "janraj-loadtest-instance"
     LOCATION = "eastus"
     
+    # Setup logging for demo
+    import logging
+    demo_logger = logging.getLogger("AzureLoadTestDemo")
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    demo_logger.addHandler(handler)
+    demo_logger.setLevel(logging.INFO)
+    
     try:
-        print("🚀 Azure Load Test Manager - SOLID Principles Implementation")
-        print("=" * 60)
+        demo_logger.info("🚀 Azure Load Test Manager - SOLID Principles Implementation")
+        demo_logger.info("=" * 60)
 
         # Initialize the runner
         runner = AzureLoadTestRunner(
@@ -1480,26 +1574,26 @@ def main():
         load_test = runner.create_load_test()
         
         if load_test:
-            print(f"✅ Load Testing instance created: {load_test['id']}")
+            demo_logger.info(f"✅ Load Testing instance created: {load_test['id']}")
             
             # Get detailed info
             info = runner.get_load_test_info()
-            print(f"📊 Load Test Details:")
-            print(f"   Name: {info.get('name')}")
-            print(f"   Location: {info.get('location')}")
-            print(f"   Data Plane URI: {info.get('data_plane_uri')}")
-            print(f"   Provisioning State: {info.get('provisioning_state')}")
+            demo_logger.info(f"📊 Load Test Details:")
+            demo_logger.info(f"   Name: {info.get('name')}")
+            demo_logger.info(f"   Location: {info.get('location')}")
+            demo_logger.info(f"   Data Plane URI: {info.get('data_plane_uri')}")
+            demo_logger.info(f"   Provisioning State: {info.get('provisioning_state')}")
         
-        print("=" * 60)
-        print("✅ Azure Load Test Manager execution completed successfully!")
+        demo_logger.info("=" * 60)
+        demo_logger.info("✅ Azure Load Test Manager execution completed successfully!")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
-        print("\n🔍 Troubleshooting:")
-        print("1. Ensure Azure CLI is installed: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
-        print("2. Login to Azure CLI: az login")
-        print("3. Verify subscription: az account show")
-        print("4. Check permissions for creating resources")
+        demo_logger.error(f"❌ Error: {e}")
+        demo_logger.error("\n🔍 Troubleshooting:")
+        demo_logger.error("1. Ensure Azure CLI is installed: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli")
+        demo_logger.error("2. Login to Azure CLI: az login")
+        demo_logger.error("3. Verify subscription: az account show")
+        demo_logger.error("4. Check permissions for creating resources")
 
 
 if __name__ == "__main__":

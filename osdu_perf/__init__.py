@@ -17,7 +17,7 @@ if not any('azure_load_test' in str(arg) for arg in sys.argv):
         # Locust not available, skip import
         pass
 
-__version__ = "1.0.14"
+__version__ = "1.0.9"
 __author__ = "Janraj CJ"
 __email__ = "janrajcj@microsoft.com"
 

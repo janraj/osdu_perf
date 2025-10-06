@@ -32,14 +32,15 @@ class AzureTokenManager:
         self._cached_tokens: Dict[str, AccessToken] = {}
         
         # Initialize credential based on configuration
-        self._initialize_credential()
+        self.logger.info(f"Initialized with Managed Identity credential scope is {client_id} {use_managed_identity}") 
+        #self._initialize_credential()  Locustwhen we run firstnotable to retrive env so commenting logic now
     
     def _initialize_credential(self) -> None:
         """Initialize the appropriate Azure credential based on configuration."""
         try:
             if self.use_managed_identity:
-                self._credential = ManagedIdentityCredential(client_id=self.client_id)
-                self.logger.info("Initialized with Managed Identity credential")
+                self._credential = ManagedIdentityCredential()
+                self.logger.info(f"Initialized with Managed Identity credential ")
             else:
                 # Try Azure CLI first, fallback to DefaultAzureCredential
                 try:
@@ -64,11 +65,11 @@ class AzureTokenManager:
         Returns:
             Access token string or None if authentication fails
         """
-        if not scope:
-            if not self.client_id:
-                self.logger.error("Either scope or client_id must be provided")
-                return None
-            scope = f"api://{self.client_id}/.default"
+        
+        if not self.client_id:
+            self.logger.error("Either scope or client_id must be provided")
+            return None
+        scope = self.client_id
         
         try:
             # Check if we have a cached valid token
@@ -77,8 +78,18 @@ class AzureTokenManager:
                 return cached_token.token
             
             # Get new token
-            token = self._credential.get_token(scope)
-            
+            try:
+                self._credential = ManagedIdentityCredential()
+                token = self._credential.get_token(scope)
+            except Exception as e1:
+                self.logger.warning(f"ManagedIdentityCredential failed: {e1}. Trying AzureCliCredential.")
+                try:
+                    self._credential = AzureCliCredential()
+                    token = self._credential.get_token(scope)
+                except Exception as e2:
+                    self.logger.warning(f"AzureCliCredential failed: {e2}. Trying DefaultAzureCredential.")
+                    self._credential = DefaultAzureCredential()
+                    token = self._credential.get_token(scope)
             # Cache the token
             self._cached_tokens[scope] = token
             
