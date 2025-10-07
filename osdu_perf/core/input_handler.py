@@ -33,7 +33,7 @@ class InputHandler:
         Returns:
             bool: True if running in Azure Load Testing, False if local development
         """
-        self.logger.info("Detecting Platform ", os.getenv("AZURE_LOAD_TEST"), os.getenv("PARTITION"), os.getenv("LOCUST_HOST"), os.getenv("APPID"))
+        self.logger.info(f"Detecting Platform: AZURE_LOAD_TEST={os.getenv('AZURE_LOAD_TEST')}, PARTITION={os.getenv('PARTITION')}, LOCUST_HOST={os.getenv('LOCUST_HOST')}, APPID={os.getenv('APPID')}")
 
         # Check if any Azure Load Testing indicators are present
         if os.getenv("AZURE_LOAD_TEST") == "true":
@@ -56,7 +56,7 @@ class InputHandler:
             self.logger.info(f"Detected Azure Load Testing environment via LOCUST_SPAWN_RATE")
             return True
         
-        self.logger.info("Detected local development environment", os.getenv("AZURE_LOAD_TEST"), os.getenv("PARTITION"), os.getenv("LOCUST_HOST"), os.getenv("APPID"))
+        self.logger.info("Detected local development environment")
         return False
     
     def prepare_headers(self):
