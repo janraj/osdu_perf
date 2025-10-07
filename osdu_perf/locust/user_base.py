@@ -9,6 +9,10 @@ from azure.kusto.ingest import QueuedIngestClient, IngestionProperties
 from azure.kusto.data import DataFormat
 from urllib.parse import urlparse
 import os
+import json
+import tempfile
+import uuid
+from datetime import datetime
 
 class PerformanceUser(HttpUser):
     """
@@ -16,9 +20,13 @@ class PerformanceUser(HttpUser):
     Inherit from this class in your locustfile.
     """
 
-    # Recommended default pacing between tasks (more realistic than no-wait)
+    # Default pacing between tasks - will be updated from config in on_start
     wait_time = between(1, 3)
     host = "https://localhost"  # Default host for testing
+    
+    # Class-level storage for configuration (accessible in static methods)
+    _kusto_config = None
+    _input_handler_instance = None
 
     def __init__(self, environment):
         super().__init__(environment)
@@ -31,6 +39,12 @@ class PerformanceUser(HttpUser):
         """Initialize services and input handling"""
         self.logger.info(f"PerformanceUser on_start called subscription id is {self.environment}")
         self.input_handler = InputHandler(self.environment)
+        
+        # Store config at class level for access in static methods
+        PerformanceUser._kusto_config = self.input_handler.get_kusto_config()
+        PerformanceUser._input_handler_instance = self.input_handler
+        
+        
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()
     
@@ -101,91 +115,160 @@ class PerformanceUser(HttpUser):
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         """Called once when the test finishes."""
-        # ✅ Initialize Kusto client (e.g., your own ADX cluster)
-        KUSTO_CLUSTER = "https://testperfo.eastus.kusto.windows.net"
-        KUSTO_DB = "testperfo"
-        KUSTO_INGEST_URI = "https://ingest-testperfo.eastus.kusto.windows.net"
-        KUSTO_TABLE = "LocustMetrics"
-
-        #kcsb = KustoConnectionStringBuilder.with_aad_managed_service_identity_authentication(KUSTO_CLUSTER)
-        kcsb = KustoConnectionStringBuilder.with_az_cli_authentication(KUSTO_CLUSTER)
-        ingest_client = QueuedIngestClient(kcsb)
-
-        adme = PerformanceUser.get_ADME_name(environment.host)
-        partition = os.getenv("PARTITION", "uNot Yet") 
-        sku = "Not Yet" #self.input_handler.sku
-        version = "Not yet" #self.input_handler.version
+        # Get Kusto configuration from InputHandler
+        kusto_config = PerformanceUser._kusto_config
+        input_handler = PerformanceUser._input_handler_instance
         
-
-        stats = environment.runner.stats
-        error_logs = environment.runner.errors
-        exceptions = environment.runner.exceptions
-
-        total_stats = stats.total
+        if not kusto_config or not input_handler:
+            print("⚠️  No Kusto configuration available, skipping metrics push")
+            return
         
-        # Calculate overall max RPS from total stats
+        if not input_handler.is_kusto_enabled():
+            print("ℹ️  Kusto metrics collection is disabled")
+            return
+        
         try:
-            test_duration = (pd.Timestamp.utcnow() - pd.Timestamp(environment.runner.start_time)).total_seconds()
-            max_rps = total_stats.num_requests / test_duration if test_duration > 0 else 0
-        except Exception as e:
-            print(f"Error calculating max RPS: {e}")
-            max_rps = 0
-
-        results = []
-        for entry in stats.entries.values():
-            service = PerformanceUser.get_service_name(entry.name)
-
-            error_details = []
-            exception_details = []
-
-            # Process errors
-            for error_key, error_entry in error_logs.items():
-                if error_key[1] == entry.name:  # error_key is (method, name)
-                    error_details.append({
-                        "error": str(error_entry.error),
-                        "occurrences": error_entry.occurrences
-                    })
+            # Automatically determine authentication method based on environment
+            is_azure_load_test = os.getenv("AZURE_LOAD_TEST", "").lower() == "true"
             
-            # Process exceptions  
-            for exc_key, exc_entry in exceptions.items():
-                if exc_key[1] == entry.name:  # exc_key is (method, name)
-                    exception_details.append({
-                        "exception": str(exc_entry.get('exception', '')),
-                        "count": exc_entry.get('count', 0),
-                        "msg": str(exc_entry.get('msg', ''))
-                    })
-
-
-            results.append({
+            if is_azure_load_test:
+                auth_method = "managed_identity"
+                print(f"📊 Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                print(f"🔐 Using authentication method: {auth_method} (Azure Load Test environment detected)")
+                kcsb = KustoConnectionStringBuilder.with_aad_managed_service_identity_authentication(kusto_config['cluster'])
+            else:
+                auth_method = "az_cli"
+                print(f"📊 Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                print(f"🔐 Using authentication method: {auth_method} (local environment detected)")
+                kcsb = KustoConnectionStringBuilder.with_az_cli_authentication(kusto_config['cluster'])
+            
+            ingest_client = QueuedIngestClient(kcsb)
+            
+            # Use existing test run ID from environment or generate fallback
+            test_run_id = os.getenv("TEST_RUN_ID")
+            if not test_run_id:
+                # Fallback to UUID if TEST_RUN_ID not available (shouldn't happen in normal flow)
+                test_run_id = str(uuid.uuid4())
+                print(f"⚠️  TEST_RUN_ID not found in environment, using fallback: {test_run_id}")
+            else:
+                print(f"📋 Using Test Run ID from environment: {test_run_id}")
+                
+            current_timestamp = datetime.utcnow()
+            
+            adme = PerformanceUser.get_ADME_name(environment.host)
+            partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
+            sku = "Not Yet"
+            version = "Not yet"
+            
+            # Calculate test duration and max RPS
+            stats = environment.runner.stats
+            try:
+                start_time = getattr(environment.runner, 'start_time', None)
+                if start_time:
+                    test_duration = (current_timestamp - start_time).total_seconds()
+                    max_rps = stats.total.num_requests / test_duration if test_duration > 0 else 0
+                else:
+                    test_duration = 0
+                    max_rps = 0
+            except Exception as e:
+                print(f"Error calculating test metrics: {e}")
+                test_duration = 0
+                max_rps = 0
+            
+            # 1. PREPARE STATS DATA
+            stats_results = []
+            for entry in stats.entries.values():
+                service = PerformanceUser.get_service_name(entry.name)
+                stats_results.append({
+                    "ADME": adme,
+                    "Partition": partition,
+                    "SKU": sku,
+                    "Version": version,
+                    "Service": service,
+                    "Name": entry.name,
+                    "Method": entry.method,
+                    "Requests": entry.num_requests,
+                    "Failures": entry.num_failures,
+                    "MedianResponseTime": entry.median_response_time,
+                    "AverageResponseTime": entry.avg_response_time,
+                    "CurrentRPS": entry.current_rps,
+                    "Throughput": max_rps,
+                    "RequestsPerSec": entry.num_reqs_per_sec,
+                    "FailuresPerSec": entry.num_fail_per_sec,
+                    "FailRatio": entry.fail_ratio,
+                    "Timestamp": current_timestamp,
+                    "TestRunId": test_run_id
+                })
+            
+            # 2. PREPARE EXCEPTIONS DATA
+            exceptions_results = []
+            for error_key, error_entry in environment.runner.stats.errors.items():
+                exceptions_results.append({
+                    "TestRunId": test_run_id,
+                    "Method": str(error_key[0]) if error_key[0] else "Unknown",
+                    "Name": str(error_key[1]) if error_key[1] else "Unknown",
+                    "Error": str(error_entry.error) if hasattr(error_entry, 'error') else "Unknown",
+                    "Occurrences": int(error_entry.occurrences) if hasattr(error_entry, 'occurrences') else 0,
+                    "Traceback": str(getattr(error_entry, 'traceback', '')),
+                    "Timestamp": current_timestamp
+                })
+            
+            # 3. PREPARE SUMMARY DATA
+            summary_results = [{
+                "TestRunId": test_run_id,
                 "ADME": adme,
                 "Partition": partition,
-                "SKU": sku,
-                "Version": version,
-                "Service": service,
-                "Name": entry.name,
-                "Method": entry.method,
-                "Requests": entry.num_requests,
-                "Failures": entry.num_failures,
-                "MedianResponseTime": entry.median_response_time,
-                "AverageResponseTime": entry.avg_response_time,
-                "Timestamp": pd.Timestamp.utcnow(),
-                "CurrentRPS": entry.current_rps,  
-                "Throughput": max_rps,                            # Type: float - CORRECTED
-                "RequestsPerSec": entry.num_reqs_per_sec,         # Type: float
-                "FailuresPerSec": entry.num_fail_per_sec,         # Type: float
-                "FailRatio": entry.fail_ratio,                    # Type: float (0.0 to 1.0)
-                "ErrorLogs": str(error_details),                  # Type: string (JSON)
-                "Exceptions": str(exception_details)               # Type: string (JSON)
-            })
-        
-        df = pd.DataFrame(results)
-        ingestion_props = IngestionProperties(
-            database=KUSTO_DB,
-            table=KUSTO_TABLE,
-            data_format=DataFormat.CSV
-        )
-        ingest_client.ingest_from_dataframe(df, ingestion_props)
-        print("✅ Metrics pushed to Kusto")
-
+                "TotalRequests": int(stats.total.num_requests),
+                "TotalFailures": int(stats.total.num_failures),
+                "AvgResponseTime": float(stats.total.avg_response_time),
+                "StartTime": start_time if start_time else current_timestamp,
+                "EndTime": current_timestamp,
+                "TestDurationSeconds": float(test_duration),
+                "MaxRPS": float(max_rps),
+                "Timestamp": current_timestamp
+            }]
+            
+            # CREATE DATAFRAMES
+            stats_df = pd.DataFrame(stats_results)
+            exceptions_df = pd.DataFrame(exceptions_results) if exceptions_results else pd.DataFrame()
+            summary_df = pd.DataFrame(summary_results)
+            
+            # CREATE INGESTION PROPERTIES
+            stats_ingestion_props = IngestionProperties(
+                database=kusto_config['database'],
+                table="LocustMetrics",
+                data_format=DataFormat.CSV
+            )
+            
+            exceptions_ingestion_props = IngestionProperties(
+                database=kusto_config['database'],
+                table="LocustExceptions",
+                data_format=DataFormat.CSV
+            )
+            
+            summary_ingestion_props = IngestionProperties(
+                database=kusto_config['database'],
+                table="LocustTestSummary",
+                data_format=DataFormat.CSV
+            )
+            
+            # INGEST DATA
+            if not stats_df.empty:
+                ingest_client.ingest_from_dataframe(stats_df, stats_ingestion_props)
+                print(f"✅ Stats data pushed to Kusto (LocustStats table): {len(stats_results)} records")
+            
+            if not exceptions_df.empty:
+                ingest_client.ingest_from_dataframe(exceptions_df, exceptions_ingestion_props)
+                print(f"✅ Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
+            
+            ingest_client.ingest_from_dataframe(summary_df, summary_ingestion_props)
+            print(f"✅ Summary data pushed to Kusto (LocustTestSummary table): 1 record")
+            print(f"🆔 Test Run ID: {test_run_id}")
+            
+        except Exception as e:
+            print(f"❌ Error pushing metrics to Kusto: {e}")
+            # Optionally log the error details for debugging
+            import traceback
+            print(f"📋 Error details: {traceback.format_exc()}")
 
    

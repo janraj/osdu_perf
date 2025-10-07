@@ -791,8 +791,7 @@ class AzureLoadTestRunner:
                 os.path.join(test_directory, "perf_*test.py"),
                 os.path.join(test_directory, "**", "perf_*test.py"),
                 os.path.join(test_directory, "locustfile.py"),
-                os.path.join(test_directory, "requirements.txt"),
-                os.path.join(test_directory, "config.yaml")
+                os.path.join(test_directory, "requirements.txt")
             ]
             
             test_files = []
@@ -825,6 +824,23 @@ class AzureLoadTestRunner:
             # Remove duplicates and sort
             test_files = sorted(list(set(test_files)))
             
+            # Filter out config files (security: exclude sensitive configuration)
+            config_files_to_exclude = ['config.yaml', 'config.yml', '.env', '.config']
+            filtered_test_files = []
+            excluded_files = []
+            
+            for file_path in test_files:
+                file_name = os.path.basename(file_path)
+                if any(config_name in file_name.lower() for config_name in config_files_to_exclude):
+                    excluded_files.append(file_name)
+                else:
+                    filtered_test_files.append(file_path)
+            
+            test_files = filtered_test_files
+            
+            if excluded_files:
+                self.logger.info(f"🔒 Excluded config files (security): {', '.join(excluded_files)}")
+            
             if not test_files:
                 self.logger.error("❌ No test files found!")
                 self.logger.error("   Make sure you have performance test files in one of these patterns:")
@@ -838,6 +854,11 @@ class AzureLoadTestRunner:
             for test_file in test_files:
                 rel_path = os.path.relpath(test_file, test_directory)
                 self.logger.info(f"   • {rel_path}")
+            self.logger.info("")
+            self.logger.info("📤 Files to upload to Azure Load Testing:")
+            for test_file in test_files:
+                file_name = os.path.basename(test_file)
+                self.logger.info(f"   • {file_name}")
             self.logger.info("")
             
             # Convert file paths to Path objects for the new workflow
