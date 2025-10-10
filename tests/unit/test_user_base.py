@@ -4,7 +4,7 @@ import logging
 from unittest.mock import Mock, patch, MagicMock
 from locust import HttpUser, between
 
-from osdu_perf.locust.user_base import PerformanceUser
+from osdu_perf.client_base.user_base import PerformanceUser
 from osdu_perf.core.base_service import BaseService
 
 

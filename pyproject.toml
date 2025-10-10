@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osdu_perf"
-version = "1.0.9"
+version = "1.0.12"
 authors = [
     {name = "Janraj CJ", email = "janrajcj@microsoft.com"},
 ]
 maintainers = [
     {name = "Janraj CJ", email = "janrajcj@microsoft.com"},
 ]
-description = "Performance Testing Framework for OSDU Services - A comprehensive tool for testing OSDU APIs with Locust"
+description = "Performance Testing Framework for OSDU Services - A comprehensive tool for testing OSDU APIs with Locust and Azure Load Testing SDK"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
 requires-python = ">=3.8"
@@ -27,24 +27,44 @@ classifiers = [
     "Topic :: Software Development :: Testing",
     "Topic :: Software Development :: Testing :: Traffic Generation",
 ]
-keywords = ["performance", "testing", "locust", "azure", "osdu"]
+keywords = ["performance", "testing", "locust", "azure", "osdu", "load-testing", "azure-sdk", "performance-testing"]
 dependencies = [
     "locust>=2.0.0",
-    "azure-identity>=1.12.0",
-    "azure-core>=1.26.0",
+    "azure-identity>=1.13.0",
+    "azure-core>=1.28.0",
+    "azure-mgmt-core>=1.4.0",
+    "azure-mgmt-resource>=23.0.0",
+    "azure-mgmt-loadtesting>=1.0.0",
+    "azure-developer-loadtesting>=1.0.0",
     "requests>=2.28.0",
     "pyyaml>=6.0",
+    "pandas>=1.5.0",
+    "azure-kusto-data>=5.0.0",
+    "azure-kusto-ingest>=5.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
     "black>=22.0.0",
     "flake8>=5.0.0",
     "mypy>=1.0.0",
     "build>=0.10.0",
     "twine>=4.0.0",
+]
+azure-extras = [
+    "azure-storage-blob>=12.16.0",
+    "azure-keyvault-secrets>=4.7.0",
+    "azure-monitor-query>=1.2.0",
+    "azure-mgmt-monitor>=6.0.0",
+]
+performance = [
+    "numpy>=1.24.0",
+    "matplotlib>=3.6.0",
+    "seaborn>=0.12.0",
+    "plotly>=5.15.0",
 ]
 
 [project.urls]
