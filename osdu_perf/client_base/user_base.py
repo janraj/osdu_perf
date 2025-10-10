@@ -47,6 +47,7 @@ class PerformanceUser(HttpUser):
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()
     
+   
     @task
     def execute_services(self):
         """Execute all registered services"""
@@ -173,7 +174,16 @@ class PerformanceUser(HttpUser):
                 print(f"Error calculating test metrics: {e}")
                 test_duration = 0
                 max_rps = 0
-            
+            try:
+                total_bytes = sum(s.total_response_length for s in environment.runner.stats.entries.values())
+                total_time = environment.runner.stats.total.last_request_timestamp - environment.runner.stats.total.start_time
+                throughput_bps = total_bytes / total_time
+                throughput_mbps = throughput_bps / (1024 * 1024)
+            except Exception as e:
+                print(f"Error calculating throughput metrics: {e}")
+                throughput_bps = 0
+                throughput_mbps = 0
+
             # 1. PREPARE STATS DATA
             stats_results = []
             for entry in stats.entries.values():
@@ -203,14 +213,14 @@ class PerformanceUser(HttpUser):
                     "ResponseTime999th": entry.get_response_time_percentile(0.999),
                     "CurrentRPS": float(entry.current_rps) if hasattr(entry, 'current_rps') and entry.current_rps is not None else 0.0,
                     "CurrentFailPerSec": float(entry.current_fail_per_sec) if hasattr(entry, 'current_fail_per_sec') and entry.current_fail_per_sec is not None else 0.0,
-                    "Throughput": max_rps,
+                    "MaxRPS": max_rps,
                     "RequestsPerSec": float(getattr(entry, 'num_reqs_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_reqs_per_sec', {}), 'get') else getattr(entry, 'num_reqs_per_sec', 0)),
                     "FailuresPerSec": float(getattr(entry, 'num_fail_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_fail_per_sec', {}), 'get') else getattr(entry, 'num_fail_per_sec', 0)),
                     "FailRatio": float(entry.fail_ratio) if hasattr(entry, 'fail_ratio') and entry.fail_ratio is not None else 0.0,
                     "TotalContentLength": int(entry.total_content_length) if hasattr(entry, 'total_content_length') and entry.total_content_length is not None else 0,
-                    "StartTime": entry.start_time if hasattr(entry, 'start_time') and entry.start_time is not None else current_timestamp,
-                    "LastRequestTimestamp": entry.last_request_timestamp if hasattr(entry, 'last_request_timestamp') and entry.last_request_timestamp is not None else current_timestamp,
-                    "Timestamp": current_timestamp,
+                    "StartTime": datetime.fromtimestamp(entry.start_time).isoformat() if hasattr(entry, 'start_time') and entry.start_time is not None else current_timestamp.isoformat(),
+                    "LastRequestTimestamp": datetime.fromtimestamp(entry.last_request_timestamp).isoformat() if hasattr(entry, 'last_request_timestamp') and entry.last_request_timestamp is not None else current_timestamp.isoformat(),
+                    "Timestamp": current_timestamp.isoformat(),
                     "TestRunId": test_run_id
                 })
             
@@ -220,6 +230,8 @@ class PerformanceUser(HttpUser):
                 exceptions_results.append({
                     "TestRunId": test_run_id,
                     "ADME": adme,
+                    "SKU": sku,
+                    "Version": version,
                     "Partition": partition,
                     "Method": str(error_key[0]) if error_key[0] else "Unknown",
                     "Name": str(error_key[1]) if error_key[1] else "Unknown",
@@ -228,7 +240,7 @@ class PerformanceUser(HttpUser):
                     "Traceback": str(getattr(error_entry, 'traceback', '')),
                     "ErrorMessage": str(getattr(error_entry, 'msg', '')),
                     "Service": PerformanceUser.get_service_name(str(error_key[1]) if error_key[1] else ""),
-                    "Timestamp": current_timestamp
+                    "Timestamp": current_timestamp.isoformat()
                 })
             
             # 3. PREPARE SUMMARY DATA
@@ -259,11 +271,11 @@ class PerformanceUser(HttpUser):
                 "FailuresPerSec": float(getattr(stats.total, 'num_fail_per_sec', {}).get('total', 0) if hasattr(getattr(stats.total, 'num_fail_per_sec', {}), 'get') else getattr(stats.total, 'num_fail_per_sec', 0)),
                 "FailRatio": float(stats.total.fail_ratio) if hasattr(stats.total, 'fail_ratio') and stats.total.fail_ratio is not None else 0.0,
                 "TotalContentLength": int(stats.total.total_content_length) if hasattr(stats.total, 'total_content_length') and stats.total.total_content_length is not None else 0,
-                "StartTime": start_time if start_time else current_timestamp,
-                "EndTime": current_timestamp,
+                "StartTime": start_time.isoformat() if start_time and hasattr(start_time, 'isoformat') else current_timestamp.isoformat(),
+                "EndTime": current_timestamp.isoformat(),
                 "TestDurationSeconds": float(test_duration),
                 "MaxRPS": float(max_rps),
-                "Timestamp": current_timestamp
+                "Timestamp": current_timestamp.isoformat()
             }]
             
             # CREATE INGESTION PROPERTIES
@@ -304,7 +316,7 @@ class PerformanceUser(HttpUser):
                                "MinResponseTime", "MaxResponseTime", "ResponseTime50th", "ResponseTime60th",
                                "ResponseTime70th", "ResponseTime80th", "ResponseTime90th", "ResponseTime95th",
                                "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
-                               "CurrentFailPerSec", "Throughput", "RequestsPerSec", "FailuresPerSec", 
+                               "CurrentFailPerSec", "MaxRPS", "RequestsPerSec", "FailuresPerSec", 
                                "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
                                "Timestamp", "TestRunId"]
                 stats_csv = create_csv_string(stats_results, stats_headers)
@@ -315,7 +327,7 @@ class PerformanceUser(HttpUser):
                 print(f"✅ Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
 
             if exceptions_results:
-                exceptions_headers = ["TestRunId", "ADME", "Partition", "Method", "Name", "Error", 
+                exceptions_headers = ["TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
                                     "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp"]
                 exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
                 ingest_client.ingest_from_stream(
@@ -346,5 +358,10 @@ class PerformanceUser(HttpUser):
             # Optionally log the error details for debugging
             import traceback
             print(f"📋 Error details: {traceback.format_exc()}")
+
+    @events.request.add_listener
+    def on_request(request_type, name, response_time, response_length, response, **kwargs):
+        # response_length is bytes returned from server
+        pass 
 
    

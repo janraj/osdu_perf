@@ -34,6 +34,10 @@ osdu_environment:
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
   
+  # OSDU deployment details (optional - used for metrics collection)
+  sku: "Standard"
+  version: "25.2.35"
+  
   # Authentication (optional - uses automatic token generation if not provided)
   auth:
     # Manual token override (optional)
@@ -49,6 +53,11 @@ metrics_collector:
 
 # Test Configuration (Optional)
 test_settings:
+  # Where the azure load test resource and tests are located
+  subscription_id: ""
+  resource_group: "adme-performance-rg"
+  location: "eastus"
+  #Test specific configurations
   default_wait_time: 
     min: 1
     max: 3

@@ -383,6 +383,92 @@ class InputHandler:
             
         return None
     
+    def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get OSDU SKU from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            OSDU SKU value (defaults to "Standard" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        osdu_env = self.config.get('osdu_environment', {})
+        return osdu_env.get('sku')
+        
+    def get_osdu_version(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get OSDU version from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            OSDU version value (defaults to "1.0" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        osdu_env = self.config.get('osdu_environment', {})
+        return osdu_env.get('version')
+        
+    def get_azure_subscription_id(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure subscription ID from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure subscription ID
+            
+        Raises:
+            ValueError: If no subscription_id is configured and no CLI override provided
+        """
+        if cli_override:
+            return cli_override
+        
+        test_settings = self.get_test_settings()
+        return test_settings.get('subscription_id')
+
+    def get_azure_resource_group(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure resource group from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure resource group name
+            
+        Raises:
+            ValueError: If no resource_group is configured and no CLI override provided
+        """
+        if cli_override:
+            return cli_override
+            
+        test_settings = self.get_test_settings()
+        return test_settings.get('resource_group', 'adme-performance-rg')
+
+    def get_azure_location(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure location from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure location (defaults to "eastus" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        test_settings = self.get_test_settings()
+        return test_settings.get('location', 'eastus')
+    
     def load_from_config_file(self, config_path: str) -> None:
         """
         Load configuration from a specific config file path.

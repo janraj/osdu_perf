@@ -83,6 +83,13 @@ def run_azure_load_tests(args):
     partition = args.partition or input_handler.get_osdu_partition()
     osdu_adme_token = args.token or input_handler.get_osdu_token()
     app_id = args.app_id or input_handler.get_osdu_app_id()
+    sku = getattr(args, 'sku', None) or input_handler.get_osdu_sku()
+    version = getattr(args, 'version', None) or input_handler.get_osdu_version()
+    
+    # Get Azure Load Test configuration from config with CLI overrides
+    subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
+    resource_group = args.resource_group or input_handler.get_azure_resource_group()
+    location = args.location or input_handler.get_azure_location()
     
     # Generate test run ID using configured prefix
     test_run_id_prefix = input_handler.get_test_run_id_prefix()
@@ -99,11 +106,24 @@ def run_azure_load_tests(args):
     if not osdu_adme_token:
         print("❌ OSDU token is required (--token or config.yaml)")
         sys.exit(1)
+        
+    # Validate required Azure Load Test parameters
+    if not subscription_id:
+        print("❌ Azure subscription ID is required (--subscription-id or config.yaml azure_load_test.subscription_id)")
+        sys.exit(1)
+    if not resource_group:
+        print("❌ Azure resource group is required (--resource-group or config.yaml azure_load_test.resource_group)")
+        sys.exit(1)
+    if not location:
+        print("❌ Azure location is required (--location or config.yaml azure_load_test.location)")
+        sys.exit(1)
     
     print(f"🌐 OSDU Host: {host}")
     print(f"📂 Partition: {partition}")
     if app_id:
         print(f"🆔 App ID: {app_id}")
+    print(f"📦 SKU: {sku}")
+    print(f"🔢 Version: {version}")
     print(f"🆔 Test Run ID: {test_run_id}")
     
     # Generate timestamp for unique naming
@@ -117,19 +137,19 @@ def run_azure_load_tests(args):
     # Use the provided load test resource name (default: "osdu-perf-dev")
     loadtest_name = args.loadtest_name
     
-    print(f"🏗️  Azure Subscription: {args.subscription_id}")
-    print(f"🏗️  Resource Group: {args.resource_group}")
-    print(f"🏗️  Location: {args.location}")
+    print(f"🏗️  Azure Subscription: {subscription_id}")
+    print(f"🏗️  Resource Group: {resource_group}")
+    print(f"🏗️  Location: {location}")
     print(f"🏗️  Load Test Resource: {loadtest_name}")
     print(f"🧪 Test Name: {test_name}")
     print("")
     
     # Create AzureLoadTestRunner instance
     runner = AzureLoadTestRunner(
-        subscription_id=args.subscription_id,
-        resource_group_name=args.resource_group,
+        subscription_id=subscription_id,
+        resource_group_name=resource_group,
         load_test_name=loadtest_name,
-        location=args.location,
+        location=location,
         tags={
             "Environment": "Performance Testing", 
             "Service": "OSDU", 
@@ -360,6 +380,8 @@ Examples:
     local_parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
     local_parser.add_argument('--token', help='Bearer token for OSDU authentication (overrides config.yaml)')
     local_parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
+    local_parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
+    local_parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
     
     # Locust Test Parameters (Optional)
     local_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
@@ -379,16 +401,18 @@ Examples:
     # Configuration (Required)
     azure_parser.add_argument('--config', '-c', required=True, help='Path to config.yaml file (required)')
     
-    # Azure Configuration (Required)
-    azure_parser.add_argument('--subscription-id', required=True, help='Azure subscription ID')
-    azure_parser.add_argument('--resource-group', required=True, help='Azure resource group name')
-    azure_parser.add_argument('--location', required=True, help='Azure region (e.g., eastus, westus2)')
+    # Azure Configuration (Optional - can be read from config.yaml)
+    azure_parser.add_argument('--subscription-id', help='Azure subscription ID (overrides config.yaml)')
+    azure_parser.add_argument('--resource-group', help='Azure resource group name (overrides config.yaml)')
+    azure_parser.add_argument('--location', help='Azure region (e.g., eastus, westus2) (overrides config.yaml)')
     
     # OSDU Connection Parameters (Optional - overrides config.yaml values)
     azure_parser.add_argument('--host', help='OSDU host URL (overrides config.yaml)')
     azure_parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
     azure_parser.add_argument('--token', help='Bearer token for OSDU authentication (overrides config.yaml)')
     azure_parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
+    azure_parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
+    azure_parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
     
     # Azure Load Testing Configuration (Optional)
     azure_parser.add_argument('--loadtest-name', default='osdu-perf-dev', help='Azure Load Testing resource name (default: osdu-perf-dev)')
