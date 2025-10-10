@@ -4,15 +4,14 @@ from ..core import ServiceOrchestrator, InputHandler
 import logging
 from azure.kusto.ingest import QueuedIngestClient, IngestionProperties
 from azure.kusto.data import KustoConnectionStringBuilder
-import pandas as pd
 from azure.kusto.ingest import QueuedIngestClient, IngestionProperties
 from azure.kusto.data import DataFormat
 from urllib.parse import urlparse
 import os
-import json
-import tempfile
 import uuid
 from datetime import datetime
+import io
+import csv
 
 class PerformanceUser(HttpUser):
     """
@@ -191,11 +190,26 @@ class PerformanceUser(HttpUser):
                     "Failures": entry.num_failures,
                     "MedianResponseTime": entry.median_response_time,
                     "AverageResponseTime": entry.avg_response_time,
-                    "CurrentRPS": entry.current_rps,
+                    "MinResponseTime": entry.min_response_time,
+                    "MaxResponseTime": entry.max_response_time,
+                    "ResponseTime50th": entry.get_response_time_percentile(0.5),
+                    "ResponseTime60th": entry.get_response_time_percentile(0.6),
+                    "ResponseTime70th": entry.get_response_time_percentile(0.7),
+                    "ResponseTime80th": entry.get_response_time_percentile(0.8),
+                    "ResponseTime90th": entry.get_response_time_percentile(0.9),
+                    "ResponseTime95th": entry.get_response_time_percentile(0.95),
+                    "ResponseTime98th": entry.get_response_time_percentile(0.98),
+                    "ResponseTime99th": entry.get_response_time_percentile(0.99),
+                    "ResponseTime999th": entry.get_response_time_percentile(0.999),
+                    "CurrentRPS": float(entry.current_rps) if hasattr(entry, 'current_rps') and entry.current_rps is not None else 0.0,
+                    "CurrentFailPerSec": float(entry.current_fail_per_sec) if hasattr(entry, 'current_fail_per_sec') and entry.current_fail_per_sec is not None else 0.0,
                     "Throughput": max_rps,
-                    "RequestsPerSec": entry.num_reqs_per_sec,
-                    "FailuresPerSec": entry.num_fail_per_sec,
-                    "FailRatio": entry.fail_ratio,
+                    "RequestsPerSec": float(getattr(entry, 'num_reqs_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_reqs_per_sec', {}), 'get') else getattr(entry, 'num_reqs_per_sec', 0)),
+                    "FailuresPerSec": float(getattr(entry, 'num_fail_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_fail_per_sec', {}), 'get') else getattr(entry, 'num_fail_per_sec', 0)),
+                    "FailRatio": float(entry.fail_ratio) if hasattr(entry, 'fail_ratio') and entry.fail_ratio is not None else 0.0,
+                    "TotalContentLength": int(entry.total_content_length) if hasattr(entry, 'total_content_length') and entry.total_content_length is not None else 0,
+                    "StartTime": entry.start_time if hasattr(entry, 'start_time') and entry.start_time is not None else current_timestamp,
+                    "LastRequestTimestamp": entry.last_request_timestamp if hasattr(entry, 'last_request_timestamp') and entry.last_request_timestamp is not None else current_timestamp,
                     "Timestamp": current_timestamp,
                     "TestRunId": test_run_id
                 })
@@ -205,11 +219,15 @@ class PerformanceUser(HttpUser):
             for error_key, error_entry in environment.runner.stats.errors.items():
                 exceptions_results.append({
                     "TestRunId": test_run_id,
+                    "ADME": adme,
+                    "Partition": partition,
                     "Method": str(error_key[0]) if error_key[0] else "Unknown",
                     "Name": str(error_key[1]) if error_key[1] else "Unknown",
                     "Error": str(error_entry.error) if hasattr(error_entry, 'error') else "Unknown",
                     "Occurrences": int(error_entry.occurrences) if hasattr(error_entry, 'occurrences') else 0,
                     "Traceback": str(getattr(error_entry, 'traceback', '')),
+                    "ErrorMessage": str(getattr(error_entry, 'msg', '')),
+                    "Service": PerformanceUser.get_service_name(str(error_key[1]) if error_key[1] else ""),
                     "Timestamp": current_timestamp
                 })
             
@@ -218,20 +236,35 @@ class PerformanceUser(HttpUser):
                 "TestRunId": test_run_id,
                 "ADME": adme,
                 "Partition": partition,
+                "SKU": sku,
+                "Version": version,
                 "TotalRequests": int(stats.total.num_requests),
                 "TotalFailures": int(stats.total.num_failures),
+                "MedianResponseTime": float(stats.total.median_response_time),
                 "AvgResponseTime": float(stats.total.avg_response_time),
+                "MinResponseTime": float(stats.total.min_response_time),
+                "MaxResponseTime": float(stats.total.max_response_time),
+                "ResponseTime50th": float(stats.total.get_response_time_percentile(0.5)),
+                "ResponseTime60th": float(stats.total.get_response_time_percentile(0.6)),
+                "ResponseTime70th": float(stats.total.get_response_time_percentile(0.7)),
+                "ResponseTime80th": float(stats.total.get_response_time_percentile(0.8)),
+                "ResponseTime90th": float(stats.total.get_response_time_percentile(0.9)),
+                "ResponseTime95th": float(stats.total.get_response_time_percentile(0.95)),
+                "ResponseTime98th": float(stats.total.get_response_time_percentile(0.98)),
+                "ResponseTime99th": float(stats.total.get_response_time_percentile(0.99)),
+                "ResponseTime999th": float(stats.total.get_response_time_percentile(0.999)),
+                "CurrentRPS": float(stats.total.current_rps) if hasattr(stats.total, 'current_rps') and stats.total.current_rps is not None else 0.0,
+                "CurrentFailPerSec": float(stats.total.current_fail_per_sec) if hasattr(stats.total, 'current_fail_per_sec') and stats.total.current_fail_per_sec is not None else 0.0,
+                "RequestsPerSec": float(getattr(stats.total, 'num_reqs_per_sec', {}).get('total', 0) if hasattr(getattr(stats.total, 'num_reqs_per_sec', {}), 'get') else getattr(stats.total, 'num_reqs_per_sec', 0)),
+                "FailuresPerSec": float(getattr(stats.total, 'num_fail_per_sec', {}).get('total', 0) if hasattr(getattr(stats.total, 'num_fail_per_sec', {}), 'get') else getattr(stats.total, 'num_fail_per_sec', 0)),
+                "FailRatio": float(stats.total.fail_ratio) if hasattr(stats.total, 'fail_ratio') and stats.total.fail_ratio is not None else 0.0,
+                "TotalContentLength": int(stats.total.total_content_length) if hasattr(stats.total, 'total_content_length') and stats.total.total_content_length is not None else 0,
                 "StartTime": start_time if start_time else current_timestamp,
                 "EndTime": current_timestamp,
                 "TestDurationSeconds": float(test_duration),
                 "MaxRPS": float(max_rps),
                 "Timestamp": current_timestamp
             }]
-            
-            # CREATE DATAFRAMES
-            stats_df = pd.DataFrame(stats_results)
-            exceptions_df = pd.DataFrame(exceptions_results) if exceptions_results else pd.DataFrame()
-            summary_df = pd.DataFrame(summary_results)
             
             # CREATE INGESTION PROPERTIES
             stats_ingestion_props = IngestionProperties(
@@ -252,19 +285,62 @@ class PerformanceUser(HttpUser):
                 data_format=DataFormat.CSV
             )
             
-            # INGEST DATA
-            if not stats_df.empty:
-                ingest_client.ingest_from_dataframe(stats_df, stats_ingestion_props)
-                print(f"✅ Stats data pushed to Kusto (LocustStats table): {len(stats_results)} records")
             
-            if not exceptions_df.empty:
-                ingest_client.ingest_from_dataframe(exceptions_df, exceptions_ingestion_props)
+            def create_csv_string(data_list, headers):
+                """Create CSV string from list of dictionaries"""
+                if not data_list:
+                    return ""
+                
+                output = io.StringIO()
+                writer = csv.DictWriter(output, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(data_list)
+                return output.getvalue()
+
+            # INGEST DATA using CSV format
+            if stats_results:
+                stats_headers = ["ADME", "Partition", "SKU", "Version", "Service", "Name", "Method", 
+                               "Requests", "Failures", "MedianResponseTime", "AverageResponseTime",
+                               "MinResponseTime", "MaxResponseTime", "ResponseTime50th", "ResponseTime60th",
+                               "ResponseTime70th", "ResponseTime80th", "ResponseTime90th", "ResponseTime95th",
+                               "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
+                               "CurrentFailPerSec", "Throughput", "RequestsPerSec", "FailuresPerSec", 
+                               "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
+                               "Timestamp", "TestRunId"]
+                stats_csv = create_csv_string(stats_results, stats_headers)
+                ingest_client.ingest_from_stream(
+                    io.StringIO(stats_csv), 
+                    stats_ingestion_props
+                )
+                print(f"✅ Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
+
+            if exceptions_results:
+                exceptions_headers = ["TestRunId", "ADME", "Partition", "Method", "Name", "Error", 
+                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp"]
+                exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
+                ingest_client.ingest_from_stream(
+                    io.StringIO(exceptions_csv), 
+                    exceptions_ingestion_props
+                )
                 print(f"✅ Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
-            
-            ingest_client.ingest_from_dataframe(summary_df, summary_ingestion_props)
-            print(f"✅ Summary data pushed to Kusto (LocustTestSummary table): 1 record")
+
+            if summary_results:
+                summary_headers = ["TestRunId", "ADME", "Partition", "SKU", "Version", "TotalRequests", 
+                                 "TotalFailures", "MedianResponseTime", "AvgResponseTime", "MinResponseTime", 
+                                 "MaxResponseTime", "ResponseTime50th", "ResponseTime60th", "ResponseTime70th", 
+                                 "ResponseTime80th", "ResponseTime90th", "ResponseTime95th", "ResponseTime98th", 
+                                 "ResponseTime99th", "ResponseTime999th", "CurrentRPS", "CurrentFailPerSec", 
+                                 "RequestsPerSec", "FailuresPerSec", "FailRatio", "TotalContentLength", 
+                                 "StartTime", "EndTime", "TestDurationSeconds", "MaxRPS", "Timestamp"]
+                summary_csv = create_csv_string(summary_results, summary_headers)
+                ingest_client.ingest_from_stream(
+                    io.StringIO(summary_csv), 
+                    summary_ingestion_props
+                )
+                print(f"✅ Summary data pushed to Kusto (LocustTestSummary table): 1 record")
+
             print(f"🆔 Test Run ID: {test_run_id}")
-            
+
         except Exception as e:
             print(f"❌ Error pushing metrics to Kusto: {e}")
             # Optionally log the error details for debugging
