@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Dict
 from .input_handler import InputHandler
+from datetime import datetime
 
 
 class LocalTestRunner:
@@ -239,7 +240,7 @@ class OSDUUser(PerformanceUser):
         # Check if locustfile.py exists in current directory (created during init)
         current_dir_locustfile = Path("locustfile.py")
         if current_dir_locustfile.exists():
-            print(f"🎯 Using existing locustfile from current directory: {current_dir_locustfile}")
+            print(f"[prepare_locustfile] Using existing locustfile from current directory: {current_dir_locustfile}")
             return str(current_dir_locustfile)
         
         # Create a temporary locustfile using our template
@@ -270,7 +271,7 @@ class OSDUUser(PerformanceUser):
             raise ValueError("Host must be configured in config.yaml or provided via --host argument")
         
         locust_cmd = [
-            "python", "-m", "locust",
+            "locust",
             "-f", locustfile_path,
             "--host", host,
             "--users", str(args.users),
@@ -355,6 +356,7 @@ class OSDUUser(PerformanceUser):
         Returns:
             Exit code (0 for success, 1 for failure)
         """
+        print("[local_test_runner] Starting Local Performance Tests")
         try:
             # List available locustfiles if requested (do this first, no other params needed)
             if hasattr(args, 'list_locustfiles') and args.list_locustfiles:
@@ -376,12 +378,12 @@ class OSDUUser(PerformanceUser):
             resolved_token = input_handler.get_osdu_token(getattr(args, 'token', None))
             
             # Generate test run ID using configured prefix
-            from datetime import datetime
+            
             test_run_id_prefix = input_handler.get_test_run_id_prefix()
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             test_run_id = f"{test_run_id_prefix}_{timestamp}"
             
-            print(f"🆔 Generated Test Run ID: {test_run_id}")
+            print(f"[run_local_tests] Generated Test Run ID: {test_run_id}")
             
             # Store resolved values for command building
             self.resolved_config = {
@@ -400,6 +402,8 @@ class OSDUUser(PerformanceUser):
             
             # Build Locust command using resolved values
             locust_cmd = self.build_locust_command(args, locustfile_path)
+
+            print(f"[run_local_tests] Built locust command: {' '.join(locust_cmd)}")
             
             # Print test information
             # Default is web UI, headless only if explicitly requested
@@ -411,14 +415,14 @@ class OSDUUser(PerformanceUser):
             
             # Print results
             if exit_code == 0:
-                print("\n✅ Performance test completed successfully!")
+                print("\n[run_local_tests] Performance test completed successfully!")
             else:
-                print(f"\n❌ Performance test failed with exit code: {exit_code}")
-            
+                print(f"\n[run_local_tests] Performance test failed with exit code: {exit_code}")
+
             return exit_code
             
         except Exception as e:
-            print(f"❌ Error running local tests: {e}")
+            print(f"[run_local_tests] Error running local tests: {e}")
             return 1
         
         finally:
