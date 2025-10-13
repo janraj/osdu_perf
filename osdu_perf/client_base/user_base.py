@@ -127,11 +127,13 @@ class PerformanceUser(HttpUser):
             print("ℹ️  Kusto metrics collection is disabled")
             return
         
+        test_run_environment = "Local"
         try:
             # Automatically determine authentication method based on environment
             is_azure_load_test = os.getenv("AZURE_LOAD_TEST", "").lower() == "true"
             
             if is_azure_load_test:
+                test_run_environment = "Azure Load Test"
                 auth_method = "managed_identity"
                 print(f"📊 Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
                 print(f"🔐 Using authentication method: {auth_method} (Azure Load Test environment detected)")
@@ -157,8 +159,8 @@ class PerformanceUser(HttpUser):
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-            sku = "Not Yet"
-            version = "Not yet"
+            sku = input_handler.get_osdu_sku()
+            version = input_handler.get_osdu_version()
             
             # Calculate test duration and max RPS
             stats = environment.runner.stats
@@ -174,26 +176,26 @@ class PerformanceUser(HttpUser):
                 print(f"Error calculating test metrics: {e}")
                 test_duration = 0
                 max_rps = 0
-            try:
-                total_bytes = sum(s.total_response_length for s in environment.runner.stats.entries.values())
-                total_time = environment.runner.stats.total.last_request_timestamp - environment.runner.stats.total.start_time
-                throughput_bps = total_bytes / total_time
-                throughput_mbps = throughput_bps / (1024 * 1024)
-            except Exception as e:
-                print(f"Error calculating throughput metrics: {e}")
-                throughput_bps = 0
-                throughput_mbps = 0
 
             # 1. PREPARE STATS DATA
             stats_results = []
             for entry in stats.entries.values():
                 service = PerformanceUser.get_service_name(entry.name)
+                start_time = datetime.fromtimestamp(entry.start_time).isoformat() if hasattr(entry, 'start_time') and entry.start_time is not None else current_timestamp.isoformat()
+                end_time = datetime.fromtimestamp(entry.last_request_timestamp).isoformat() if hasattr(entry, 'last_request_timestamp') and entry.last_request_timestamp is not None else current_timestamp.isoformat()
+                start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                duration = (end - start).total_seconds()
+                throughput = (entry.total_content_length / duration) if duration > 0 else 0
+                average_rps = (entry.num_requests / duration) if duration > 0 else 0
+
                 stats_results.append({
                     "ADME": adme,
                     "Partition": partition,
                     "SKU": sku,
                     "Version": version,
                     "Service": service,
+                    "TestEnv": test_run_environment,
                     "Name": entry.name,
                     "Method": entry.method,
                     "Requests": entry.num_requests,
@@ -213,43 +215,50 @@ class PerformanceUser(HttpUser):
                     "ResponseTime999th": entry.get_response_time_percentile(0.999),
                     "CurrentRPS": float(entry.current_rps) if hasattr(entry, 'current_rps') and entry.current_rps is not None else 0.0,
                     "CurrentFailPerSec": float(entry.current_fail_per_sec) if hasattr(entry, 'current_fail_per_sec') and entry.current_fail_per_sec is not None else 0.0,
-                    "MaxRPS": max_rps,
+                    "AverageRPS": average_rps,
                     "RequestsPerSec": float(getattr(entry, 'num_reqs_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_reqs_per_sec', {}), 'get') else getattr(entry, 'num_reqs_per_sec', 0)),
                     "FailuresPerSec": float(getattr(entry, 'num_fail_per_sec', {}).get('total', 0) if hasattr(getattr(entry, 'num_fail_per_sec', {}), 'get') else getattr(entry, 'num_fail_per_sec', 0)),
                     "FailRatio": float(entry.fail_ratio) if hasattr(entry, 'fail_ratio') and entry.fail_ratio is not None else 0.0,
                     "TotalContentLength": int(entry.total_content_length) if hasattr(entry, 'total_content_length') and entry.total_content_length is not None else 0,
-                    "StartTime": datetime.fromtimestamp(entry.start_time).isoformat() if hasattr(entry, 'start_time') and entry.start_time is not None else current_timestamp.isoformat(),
-                    "LastRequestTimestamp": datetime.fromtimestamp(entry.last_request_timestamp).isoformat() if hasattr(entry, 'last_request_timestamp') and entry.last_request_timestamp is not None else current_timestamp.isoformat(),
+                    "StartTime": start_time,
+                    "LastRequestTimestamp": end_time,
                     "Timestamp": current_timestamp.isoformat(),
-                    "TestRunId": test_run_id
+                    "TestRunId": test_run_id,
+                    "Throughput": throughput
                 })
             
             # 2. PREPARE EXCEPTIONS DATA
             exceptions_results = []
             for error_key, error_entry in environment.runner.stats.errors.items():
+                method = str(error_entry.method)
+                name = str(error_entry.name)
                 exceptions_results.append({
                     "TestRunId": test_run_id,
                     "ADME": adme,
                     "SKU": sku,
                     "Version": version,
                     "Partition": partition,
-                    "Method": str(error_key[0]) if error_key[0] else "Unknown",
-                    "Name": str(error_key[1]) if error_key[1] else "Unknown",
+                    "Method": method,
+                    "Name": name,
+                    "TestEnv": test_run_environment,
                     "Error": str(error_entry.error) if hasattr(error_entry, 'error') else "Unknown",
                     "Occurrences": int(error_entry.occurrences) if hasattr(error_entry, 'occurrences') else 0,
                     "Traceback": str(getattr(error_entry, 'traceback', '')),
                     "ErrorMessage": str(getattr(error_entry, 'msg', '')),
-                    "Service": PerformanceUser.get_service_name(str(error_key[1]) if error_key[1] else ""),
+                    "Service": PerformanceUser.get_service_name(name),
                     "Timestamp": current_timestamp.isoformat()
                 })
             
             # 3. PREPARE SUMMARY DATA
+            throughput = (stats.total.total_content_length / test_duration) if test_duration > 0 else 0
+            average_rps = (stats.total.num_requests / test_duration) if test_duration > 0 else 0
             summary_results = [{
                 "TestRunId": test_run_id,
                 "ADME": adme,
                 "Partition": partition,
                 "SKU": sku,
                 "Version": version,
+                "TestEnv": test_run_environment,
                 "TotalRequests": int(stats.total.num_requests),
                 "TotalFailures": int(stats.total.num_failures),
                 "MedianResponseTime": float(stats.total.median_response_time),
@@ -274,8 +283,9 @@ class PerformanceUser(HttpUser):
                 "StartTime": start_time.isoformat() if start_time and hasattr(start_time, 'isoformat') else current_timestamp.isoformat(),
                 "EndTime": current_timestamp.isoformat(),
                 "TestDurationSeconds": float(test_duration),
-                "MaxRPS": float(max_rps),
-                "Timestamp": current_timestamp.isoformat()
+                "AverageRPS": float(average_rps),
+                "Timestamp": current_timestamp.isoformat(),
+                "Throughput": throughput
             }]
             
             # CREATE INGESTION PROPERTIES
@@ -311,14 +321,14 @@ class PerformanceUser(HttpUser):
 
             # INGEST DATA using CSV format
             if stats_results:
-                stats_headers = ["ADME", "Partition", "SKU", "Version", "Service", "Name", "Method", 
+                stats_headers = ["TestEnv", "ADME", "Partition", "SKU", "Version", "Service", "Name", "Method", 
                                "Requests", "Failures", "MedianResponseTime", "AverageResponseTime",
                                "MinResponseTime", "MaxResponseTime", "ResponseTime50th", "ResponseTime60th",
                                "ResponseTime70th", "ResponseTime80th", "ResponseTime90th", "ResponseTime95th",
                                "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
-                               "CurrentFailPerSec", "MaxRPS", "RequestsPerSec", "FailuresPerSec", 
+                               "CurrentFailPerSec", "AverageRPS", "RequestsPerSec", "FailuresPerSec", 
                                "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
-                               "Timestamp", "TestRunId"]
+                               "Timestamp", "TestRunId", "Throughput"]
                 stats_csv = create_csv_string(stats_results, stats_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(stats_csv), 
@@ -327,7 +337,7 @@ class PerformanceUser(HttpUser):
                 print(f"✅ Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
 
             if exceptions_results:
-                exceptions_headers = ["TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
+                exceptions_headers = ["TestEnv", "TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
                                     "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp"]
                 exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
                 ingest_client.ingest_from_stream(
@@ -337,13 +347,13 @@ class PerformanceUser(HttpUser):
                 print(f"✅ Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
 
             if summary_results:
-                summary_headers = ["TestRunId", "ADME", "Partition", "SKU", "Version", "TotalRequests", 
+                summary_headers = ["TestEnv", "TestRunId", "ADME", "Partition", "SKU", "Version", "TotalRequests", 
                                  "TotalFailures", "MedianResponseTime", "AvgResponseTime", "MinResponseTime", 
                                  "MaxResponseTime", "ResponseTime50th", "ResponseTime60th", "ResponseTime70th", 
                                  "ResponseTime80th", "ResponseTime90th", "ResponseTime95th", "ResponseTime98th", 
                                  "ResponseTime99th", "ResponseTime999th", "CurrentRPS", "CurrentFailPerSec", 
                                  "RequestsPerSec", "FailuresPerSec", "FailRatio", "TotalContentLength", 
-                                 "StartTime", "EndTime", "TestDurationSeconds", "MaxRPS", "Timestamp"]
+                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput"]
                 summary_csv = create_csv_string(summary_results, summary_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(summary_csv), 

@@ -159,9 +159,9 @@ class InputHandler:
         """
         # Default Kusto configuration - used as fallback when config.yaml values are not provided
         default_config = {
-            'cluster': 'https://testperfo.eastus.kusto.windows.net',
-            'database': 'testperfo',
-            'ingest_uri': 'https://ingest-testperfo.eastus.kusto.windows.net'
+            'cluster': 'https://adme-performance.eastus.kusto.windows.net',
+            'database': 'adme-performance-db',
+            'ingest_uri': 'https://ingest-adme-performance.eastus.kusto.windows.net'
         }
         
         # Get configuration from file or use defaults
