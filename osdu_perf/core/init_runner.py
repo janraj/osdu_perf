@@ -58,9 +58,10 @@ test_settings:
   default_wait_time: 
     min: 1
     max: 3
-  default_users: 10
-  default_spawn_rate: 2
-  default_run_time: "60s"
+  users: 10
+  spawn_rate: 2
+  run_time: "60s"
+  engine_instances: 1
   test_run_id_prefix: "{test_run_id_prefix}"
 """
         output_path.write_text(config_content, encoding='utf-8')
