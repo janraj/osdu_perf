@@ -248,37 +248,57 @@ class InputHandler:
         test_settings = self.get_test_settings()
         wait_time = test_settings.get('default_wait_time', {'min': 1, 'max': 3})
         return (wait_time.get('min', 1), wait_time.get('max', 3))
-    
-    def get_default_users(self) -> int:
+
+    def get_users(self, cli_override: Optional[int] = None) -> int:
         """
         Get default number of users for performance tests.
         
         Returns:
             Default number of users.
         """
+        if cli_override:
+            return cli_override
         test_settings = self.get_test_settings()
-        return test_settings.get('default_users', 10)
-    
-    def get_default_spawn_rate(self) -> int:
+        return test_settings.get('users', 100)
+
+    def get_spawn_rate(self, cli_override: Optional[int] = None) -> int:
         """
         Get default spawn rate for performance tests.
         
         Returns:
             Default spawn rate (users per second).
         """
+        if cli_override:
+            return cli_override
         test_settings = self.get_test_settings()
-        return test_settings.get('default_spawn_rate', 2)
-    
-    def get_default_run_time(self) -> str:
+        return test_settings.get('spawn_rate', 5)
+
+    def get_run_time(self, cli_override: Optional[str] = None) -> str:
         """
         Get default run time for performance tests.
         
         Returns:
             Default run time as string (e.g., "60s", "5m").
         """
+        if cli_override:
+            return cli_override
+
         test_settings = self.get_test_settings()
-        return test_settings.get('default_run_time', '60s')
+        return test_settings.get('run_time', '3600s')
     
+
+    def get_engine_instances(self, cli_override: Optional[int] = None) -> int:
+        """
+        Get default number of engine instances for performance tests.
+
+        Returns:
+            Default number of engine instances.
+        """
+        if cli_override:
+            return cli_override
+        test_settings = self.get_test_settings()
+        return test_settings.get('engine_instances', 10)
+
     def get_test_run_id_prefix(self) -> str:
         """
         Get test run ID prefix for performance tests.

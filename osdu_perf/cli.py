@@ -90,6 +90,14 @@ def run_azure_load_tests(args):
     subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
     resource_group = args.resource_group or input_handler.get_azure_resource_group()
     location = args.location or input_handler.get_azure_location()
+
+    # Use already resolved OSDU parameters from config with CLI overrides (don't re-extract from args)
+    # host, partition, token, app_id are already resolved above from config + CLI overrides
+    users =  input_handler.get_users(getattr(args, 'users', None))
+    spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
+    run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
+    engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
+
     
     # Generate test run ID using configured prefix
     test_run_id_prefix = input_handler.get_test_run_id_prefix()
@@ -177,12 +185,7 @@ def run_azure_load_tests(args):
     # Get test directory from args
     test_directory = getattr(args, 'directory', './perf_tests')
     
-    # Use already resolved OSDU parameters from config with CLI overrides (don't re-extract from args)
-    # host, partition, token, app_id are already resolved above from config + CLI overrides
-    users = getattr(args, 'users', 10)
-    spawn_rate = getattr(args, 'spawn_rate', 2)
-    run_time = getattr(args, 'run_time', '60s')
-    engine_instances = getattr(args, 'engine_instances', 1)
+    
     
     # Setup test files (find, copy, upload) using the runner with OSDU parameters
     print("[run_azure_load_tests] STEP 2 creating tests and uploading test files to azure load test resource...")
@@ -243,7 +246,7 @@ def run_azure_load_tests(args):
                 )
                 import time
                 print("[run_azure_load_tests] STEP 4 Waiting 120 seconds for Azure Load Test to initialize...")
-                time.sleep(120)
+                time.sleep(360)
 
                 execution_result = runner.run_test(
                     test_name=test_name,
@@ -382,12 +385,11 @@ Examples:
     local_parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
     local_parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
     local_parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
-    
     # Locust Test Parameters (Optional)
-    local_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
-    local_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    local_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
-    
+    local_parser.add_argument('--users', '-u', type=int, help='Number of concurrent users (default: 100)')
+    local_parser.add_argument('--spawn-rate', '-r', type=int, help='User spawn rate per second (default: 5)')
+    local_parser.add_argument('--run-time', '-t', help='Test duration (default: 60m)')
+    local_parser.add_argument('--engine-instances', '-e', type=int, help='Number of engine instances (default: 10)')
     # Advanced Options
     local_parser.add_argument('--locustfile', '-f', help='Specific locustfile to use (optional)')
     local_parser.add_argument('--list-locustfiles', action='store_true', help='List available bundled locustfiles')
@@ -417,12 +419,7 @@ Examples:
     # Azure Load Testing Configuration (Optional)
     azure_parser.add_argument('--loadtest-name', default='osdu-perf-dev', help='Azure Load Testing resource name (default: osdu-perf-dev)')
     azure_parser.add_argument('--test-name', help='Test name (auto-generated if not provided)')
-    azure_parser.add_argument('--engine-instances', type=int, default=1, help='Number of load generator instances (default: 1)')
     
-    # Test Parameters (Optional)
-    azure_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
-    azure_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    azure_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     azure_parser.add_argument('--directory', '-d', default='.', help='Directory containing perf_*_test.py files (default: current)')

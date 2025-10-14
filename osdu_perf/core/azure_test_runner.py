@@ -582,8 +582,8 @@ class AzureLoadTestRunner:
             bool: True if setup completed successfully
         """
         import os
-        import shutil
         import glob
+
         
         try:
             self.logger.info(f"Searching for test files in: {test_directory}")
@@ -905,7 +905,8 @@ class AzureLoadTestRunner:
             result = self.loadtest_run_client.begin_test_run(
                 test_run_id=display_name,
                 body=test_run_config
-            ).result()  # Wait for test run to start
+            )
+            #.result()  # Wait for test run to start
 
             self.logger.info(f"✅ Test run '{test_name}' started successfully display name {display_name} ")
             return result
