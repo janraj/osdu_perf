@@ -1,6 +1,3 @@
-import gevent.monkey
-gevent.monkey.patch_all()
-
 import os
 from pathlib import Path
 import getpass
@@ -34,6 +31,10 @@ osdu_environment:
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
   
+  # OSDU deployment details (optional - used for metrics collection)
+  sku: "Standard"
+  version: "25.2.35"
+  
   # Authentication (optional - uses automatic token generation if not provided)
   auth:
     # Manual token override (optional)
@@ -49,12 +50,18 @@ metrics_collector:
 
 # Test Configuration (Optional)
 test_settings:
+  # Where the azure load test resource and tests are located
+  subscription_id: ""
+  resource_group: "adme-performance-rg"
+  location: "eastus"
+  #Test specific configurations
   default_wait_time: 
     min: 1
     max: 3
-  default_users: 10
-  default_spawn_rate: 2
-  default_run_time: "60s"
+  users: 10
+  spawn_rate: 2
+  run_time: "60s"
+  engine_instances: 1
   test_run_id_prefix: "{test_run_id_prefix}"
 """
         output_path.write_text(config_content, encoding='utf-8')

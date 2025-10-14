@@ -582,8 +582,8 @@ class AzureLoadTestRunner:
             bool: True if setup completed successfully
         """
         import os
-        import shutil
         import glob
+
         
         try:
             self.logger.info(f"Searching for test files in: {test_directory}")
@@ -782,10 +782,9 @@ class AzureLoadTestRunner:
         """
         try:
             self.logger.info(f"⏳ Checking test script validation status for '{test_name}'...")
-            
             # Get data plane URL and token
             data_plane_url = self.data_plane_url
-            data_plane_token = token  # self._get_data_plane_token()
+            data_plane_token = token  
             
             # Check test status URL
             test_status_url = f"{data_plane_url}/tests/{test_name}?api-version={self.api_version}"
@@ -870,6 +869,7 @@ class AzureLoadTestRunner:
         Returns:
             Dict[str, Any]: The test execution data, or None if failed
         """
+        
         try:
             if not self.loadtest_run_client:
                 raise ValueError("Data plane client not initialized. Create load test resource first.")
@@ -903,11 +903,12 @@ class AzureLoadTestRunner:
             
             # Start the test run
             result = self.loadtest_run_client.begin_test_run(
-                test_run_id=f"{test_name}-run-1",
+                test_run_id=display_name,
                 body=test_run_config
-            ).result()  # Wait for test run to start
+            )
+            #.result()  # Wait for test run to start
 
-            self.logger.info(f"✅ Test run '{test_name}' started successfully")
+            self.logger.info(f"✅ Test run '{test_name}' started successfully display name {display_name} ")
             return result
             
         except Exception as e:
@@ -920,7 +921,7 @@ class AzureLoadTestRunner:
             self.logger.info(f"Starting test execution for '{test_name}' using Data Plane API...")
             token = self.get_data_plane_token()
             # Wait for test script validation to complete before starting execution
-            if not self._wait_for_test_validation(test_name, token):
+            if not self._wait_for_test_validation(test_name, 120,  token):
                 self.logger.error(f"Test script validation failed for '{test_name}'")
                 return None
             
@@ -933,26 +934,17 @@ class AzureLoadTestRunner:
                 if len(display_name) < 2:
                     display_name = f"{display_name}-run"
                 elif len(display_name) > 50:
-                    display_name = display_name[:47] + "..."
+                    display_name = display_name[:47] 
             else:
                 # Generate a display name that fits within limits
                 base_name = test_name[:20] if len(test_name) > 20 else test_name
-                display_name = f"{base_name}-{timestamp}"
+                display_name = f"{base_name}-{timestamp}"[:47]
                 # Ensure it's within the 50 character limit
-                if len(display_name) > 50:
-                    # Truncate the base name to fit
-                    max_base_length = 50 - len(f"-{timestamp}")
-                    base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
-                    display_name = f"{base_name}-{timestamp}"
-            
-            execution_config = {
-                "displayName": display_name
-            }
             
             self.logger.info(f"🏷️  Using display name: '{display_name}' (length: {len(display_name)})")
             
             # Start test execution using Data Plane API  
-            execution_url = f"{self.data_plane_url}/test-runs/{test_name}-run-{timestamp}?api-version={self.api_version}"
+            execution_url = f"{self.data_plane_url}/test-runs/{test_name}?api-version={self.api_version}"
             headers = {
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/merge-patch+json"
@@ -961,13 +953,12 @@ class AzureLoadTestRunner:
             # Build the test run configuration
             test_run_config = {
                 "testId": test_name,
-                "displayName": execution_config["displayName"],
+                "displayName": display_name,
                 "description": f"Load test execution for {test_name} via OSDU Performance Framework"
             }
-            
             # Create urllib request for test execution
             json_payload = json.dumps(test_run_config).encode('utf-8')
-            req = urllib.request.Request(execution_url, data=json_payload, method='PATCH')
+            req = urllib.request.Request(execution_url, data=json_payload, method='POST')
             
             # Add headers
             for key, value in headers.items():
@@ -981,7 +972,6 @@ class AzureLoadTestRunner:
                 response_obj = UrllibResponse(e.code, error_content, dict(e.headers) if hasattr(e, 'headers') else {})
             
             response = response_obj
-            
             # Debug response
             self.logger.info(f"Test execution response status: {response.status_code}")
             if response.status_code not in [200, 201]:
@@ -1044,7 +1034,7 @@ class AzureLoadTestRunner:
         except Exception as e:
             self.logger.error(f"❌ Error starting test execution '{test_name}': {e}")
             return None
-        '''
+        '''        
 
        
     def get_app_id_from_principal_id(self, principal_id: str) -> str:

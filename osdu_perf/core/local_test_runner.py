@@ -252,8 +252,8 @@ class OSDUUser(PerformanceUser):
         print(f"✅ Temporary locustfile created at: {locustfile_path}")
         
         return str(locustfile_path)
-    
-    def build_locust_command(self, args, locustfile_path: str) -> List[str]:
+
+    def build_locust_command(self, args, locustfile_path: str, users, spawn_rate, run_time) -> List[str]:
         """
         Build the Locust command with all required parameters.
         
@@ -274,9 +274,9 @@ class OSDUUser(PerformanceUser):
             "locust",
             "-f", locustfile_path,
             "--host", host,
-            "--users", str(args.users),
-            "--spawn-rate", str(args.spawn_rate),
-            "--run-time", args.run_time,
+            "--users", str(users),
+            "--spawn-rate", str(spawn_rate),
+            "--run-time", str(run_time),
         ]
         
         # Add headless/web-ui options
@@ -376,7 +376,12 @@ class OSDUUser(PerformanceUser):
             resolved_partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
             resolved_app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
             resolved_token = input_handler.get_osdu_token(getattr(args, 'token', None))
+
+            users = input_handler.get_users(getattr(args, 'users', None))
+            spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))    
+            run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
             
+
             # Generate test run ID using configured prefix
             
             test_run_id_prefix = input_handler.get_test_run_id_prefix()
@@ -401,7 +406,7 @@ class OSDUUser(PerformanceUser):
             locustfile_path = self.prepare_locustfile(args)
             
             # Build Locust command using resolved values
-            locust_cmd = self.build_locust_command(args, locustfile_path)
+            locust_cmd = self.build_locust_command(args, locustfile_path, users, spawn_rate, run_time)
 
             print(f"[run_local_tests] Built locust command: {' '.join(locust_cmd)}")
             

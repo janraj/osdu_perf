@@ -83,6 +83,21 @@ def run_azure_load_tests(args):
     partition = args.partition or input_handler.get_osdu_partition()
     osdu_adme_token = args.token or input_handler.get_osdu_token()
     app_id = args.app_id or input_handler.get_osdu_app_id()
+    sku = getattr(args, 'sku', None) or input_handler.get_osdu_sku()
+    version = getattr(args, 'version', None) or input_handler.get_osdu_version()
+    
+    # Get Azure Load Test configuration from config with CLI overrides
+    subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
+    resource_group = args.resource_group or input_handler.get_azure_resource_group()
+    location = args.location or input_handler.get_azure_location()
+
+    # Use already resolved OSDU parameters from config with CLI overrides (don't re-extract from args)
+    # host, partition, token, app_id are already resolved above from config + CLI overrides
+    users =  input_handler.get_users(getattr(args, 'users', None))
+    spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
+    run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
+    engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
+
     
     # Generate test run ID using configured prefix
     test_run_id_prefix = input_handler.get_test_run_id_prefix()
@@ -99,11 +114,24 @@ def run_azure_load_tests(args):
     if not osdu_adme_token:
         print("❌ OSDU token is required (--token or config.yaml)")
         sys.exit(1)
+        
+    # Validate required Azure Load Test parameters
+    if not subscription_id:
+        print("❌ Azure subscription ID is required (--subscription-id or config.yaml azure_load_test.subscription_id)")
+        sys.exit(1)
+    if not resource_group:
+        print("❌ Azure resource group is required (--resource-group or config.yaml azure_load_test.resource_group)")
+        sys.exit(1)
+    if not location:
+        print("❌ Azure location is required (--location or config.yaml azure_load_test.location)")
+        sys.exit(1)
     
     print(f"🌐 OSDU Host: {host}")
     print(f"📂 Partition: {partition}")
     if app_id:
         print(f"🆔 App ID: {app_id}")
+    print(f"📦 SKU: {sku}")
+    print(f"🔢 Version: {version}")
     print(f"🆔 Test Run ID: {test_run_id}")
     
     # Generate timestamp for unique naming
@@ -117,19 +145,19 @@ def run_azure_load_tests(args):
     # Use the provided load test resource name (default: "osdu-perf-dev")
     loadtest_name = args.loadtest_name
     
-    print(f"🏗️  Azure Subscription: {args.subscription_id}")
-    print(f"🏗️  Resource Group: {args.resource_group}")
-    print(f"🏗️  Location: {args.location}")
+    print(f"🏗️  Azure Subscription: {subscription_id}")
+    print(f"🏗️  Resource Group: {resource_group}")
+    print(f"🏗️  Location: {location}")
     print(f"🏗️  Load Test Resource: {loadtest_name}")
     print(f"🧪 Test Name: {test_name}")
     print("")
     
     # Create AzureLoadTestRunner instance
     runner = AzureLoadTestRunner(
-        subscription_id=args.subscription_id,
-        resource_group_name=args.resource_group,
+        subscription_id=subscription_id,
+        resource_group_name=resource_group,
         load_test_name=loadtest_name,
-        location=args.location,
+        location=location,
         tags={
             "Environment": "Performance Testing", 
             "Service": "OSDU", 
@@ -157,12 +185,7 @@ def run_azure_load_tests(args):
     # Get test directory from args
     test_directory = getattr(args, 'directory', './perf_tests')
     
-    # Use already resolved OSDU parameters from config with CLI overrides (don't re-extract from args)
-    # host, partition, token, app_id are already resolved above from config + CLI overrides
-    users = getattr(args, 'users', 10)
-    spawn_rate = getattr(args, 'spawn_rate', 2)
-    run_time = getattr(args, 'run_time', '60s')
-    engine_instances = getattr(args, 'engine_instances', 1)
+    
     
     # Setup test files (find, copy, upload) using the runner with OSDU parameters
     print("[run_azure_load_tests] STEP 2 creating tests and uploading test files to azure load test resource...")
@@ -219,11 +242,11 @@ def run_azure_load_tests(args):
                 
                 execution_result = runner.run_test(
                     test_name=test_name,  # Using a default test name for initial run
-                    display_name="demo_tests"
+                    display_name=f"dummy_tests-{timestamp}"
                 )
                 import time
                 print("[run_azure_load_tests] STEP 4 Waiting 120 seconds for Azure Load Test to initialize...")
-                time.sleep(120)
+                time.sleep(360)
 
                 execution_result = runner.run_test(
                     test_name=test_name,
@@ -360,12 +383,13 @@ Examples:
     local_parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
     local_parser.add_argument('--token', help='Bearer token for OSDU authentication (overrides config.yaml)')
     local_parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
-    
+    local_parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
+    local_parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
     # Locust Test Parameters (Optional)
-    local_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
-    local_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    local_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
-    
+    local_parser.add_argument('--users', '-u', type=int, help='Number of concurrent users (default: 100)')
+    local_parser.add_argument('--spawn-rate', '-r', type=int, help='User spawn rate per second (default: 5)')
+    local_parser.add_argument('--run-time', '-t', help='Test duration (default: 60m)')
+    local_parser.add_argument('--engine-instances', '-e', type=int, help='Number of engine instances (default: 10)')
     # Advanced Options
     local_parser.add_argument('--locustfile', '-f', help='Specific locustfile to use (optional)')
     local_parser.add_argument('--list-locustfiles', action='store_true', help='List available bundled locustfiles')
@@ -379,26 +403,23 @@ Examples:
     # Configuration (Required)
     azure_parser.add_argument('--config', '-c', required=True, help='Path to config.yaml file (required)')
     
-    # Azure Configuration (Required)
-    azure_parser.add_argument('--subscription-id', required=True, help='Azure subscription ID')
-    azure_parser.add_argument('--resource-group', required=True, help='Azure resource group name')
-    azure_parser.add_argument('--location', required=True, help='Azure region (e.g., eastus, westus2)')
+    # Azure Configuration (Optional - can be read from config.yaml)
+    azure_parser.add_argument('--subscription-id', help='Azure subscription ID (overrides config.yaml)')
+    azure_parser.add_argument('--resource-group', help='Azure resource group name (overrides config.yaml)')
+    azure_parser.add_argument('--location', help='Azure region (e.g., eastus, westus2) (overrides config.yaml)')
     
     # OSDU Connection Parameters (Optional - overrides config.yaml values)
     azure_parser.add_argument('--host', help='OSDU host URL (overrides config.yaml)')
     azure_parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
     azure_parser.add_argument('--token', help='Bearer token for OSDU authentication (overrides config.yaml)')
     azure_parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
+    azure_parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
+    azure_parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
     
     # Azure Load Testing Configuration (Optional)
     azure_parser.add_argument('--loadtest-name', default='osdu-perf-dev', help='Azure Load Testing resource name (default: osdu-perf-dev)')
     azure_parser.add_argument('--test-name', help='Test name (auto-generated if not provided)')
-    azure_parser.add_argument('--engine-instances', type=int, default=1, help='Number of load generator instances (default: 1)')
     
-    # Test Parameters (Optional)
-    azure_parser.add_argument('--users', '-u', type=int, default=10, help='Number of concurrent users (default: 10)')
-    azure_parser.add_argument('--spawn-rate', '-r', type=int, default=2, help='User spawn rate per second (default: 2)')
-    azure_parser.add_argument('--run-time', '-t', default='30m', help='Test duration (default: 30m)')
     
     # Advanced Options
     azure_parser.add_argument('--directory', '-d', default='.', help='Directory containing perf_*_test.py files (default: current)')

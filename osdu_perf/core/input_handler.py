@@ -159,9 +159,9 @@ class InputHandler:
         """
         # Default Kusto configuration - used as fallback when config.yaml values are not provided
         default_config = {
-            'cluster': 'https://testperfo.eastus.kusto.windows.net',
-            'database': 'testperfo',
-            'ingest_uri': 'https://ingest-testperfo.eastus.kusto.windows.net'
+            'cluster': 'https://adme-performance.eastus.kusto.windows.net',
+            'database': 'adme-performance-db',
+            'ingest_uri': 'https://ingest-adme-performance.eastus.kusto.windows.net'
         }
         
         # Get configuration from file or use defaults
@@ -248,37 +248,57 @@ class InputHandler:
         test_settings = self.get_test_settings()
         wait_time = test_settings.get('default_wait_time', {'min': 1, 'max': 3})
         return (wait_time.get('min', 1), wait_time.get('max', 3))
-    
-    def get_default_users(self) -> int:
+
+    def get_users(self, cli_override: Optional[int] = None) -> int:
         """
         Get default number of users for performance tests.
         
         Returns:
             Default number of users.
         """
+        if cli_override:
+            return cli_override
         test_settings = self.get_test_settings()
-        return test_settings.get('default_users', 10)
-    
-    def get_default_spawn_rate(self) -> int:
+        return test_settings.get('users', 100)
+
+    def get_spawn_rate(self, cli_override: Optional[int] = None) -> int:
         """
         Get default spawn rate for performance tests.
         
         Returns:
             Default spawn rate (users per second).
         """
+        if cli_override:
+            return cli_override
         test_settings = self.get_test_settings()
-        return test_settings.get('default_spawn_rate', 2)
-    
-    def get_default_run_time(self) -> str:
+        return test_settings.get('spawn_rate', 5)
+
+    def get_run_time(self, cli_override: Optional[str] = None) -> str:
         """
         Get default run time for performance tests.
         
         Returns:
             Default run time as string (e.g., "60s", "5m").
         """
+        if cli_override:
+            return cli_override
+
         test_settings = self.get_test_settings()
-        return test_settings.get('default_run_time', '60s')
+        return test_settings.get('run_time', '3600s')
     
+
+    def get_engine_instances(self, cli_override: Optional[int] = None) -> int:
+        """
+        Get default number of engine instances for performance tests.
+
+        Returns:
+            Default number of engine instances.
+        """
+        if cli_override:
+            return cli_override
+        test_settings = self.get_test_settings()
+        return test_settings.get('engine_instances', 10)
+
     def get_test_run_id_prefix(self) -> str:
         """
         Get test run ID prefix for performance tests.
@@ -382,6 +402,92 @@ class InputHandler:
             return token.strip()
             
         return None
+    
+    def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get OSDU SKU from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            OSDU SKU value (defaults to "Standard" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        osdu_env = self.config.get('osdu_environment', {})
+        return osdu_env.get('sku')
+        
+    def get_osdu_version(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get OSDU version from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            OSDU version value (defaults to "1.0" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        osdu_env = self.config.get('osdu_environment', {})
+        return osdu_env.get('version')
+        
+    def get_azure_subscription_id(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure subscription ID from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure subscription ID
+            
+        Raises:
+            ValueError: If no subscription_id is configured and no CLI override provided
+        """
+        if cli_override:
+            return cli_override
+        
+        test_settings = self.get_test_settings()
+        return test_settings.get('subscription_id')
+
+    def get_azure_resource_group(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure resource group from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure resource group name
+            
+        Raises:
+            ValueError: If no resource_group is configured and no CLI override provided
+        """
+        if cli_override:
+            return cli_override
+            
+        test_settings = self.get_test_settings()
+        return test_settings.get('resource_group', 'adme-performance-rg')
+
+    def get_azure_location(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get Azure location from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Azure location (defaults to "eastus" if not configured)
+        """
+        if cli_override:
+            return cli_override
+            
+        test_settings = self.get_test_settings()
+        return test_settings.get('location', 'eastus')
     
     def load_from_config_file(self, config_path: str) -> None:
         """
