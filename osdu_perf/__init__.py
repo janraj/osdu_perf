@@ -8,16 +8,10 @@ from .core.input_handler import InputHandler
 from .core.auth import AzureTokenManager
 from .utils.environment import detect_environment
 from .core.init_runner  import InitRunner
+from .client_base.user_base import PerformanceUser
 
-import sys
-if not any('azure_load_test' in str(arg) for arg in sys.argv):
-    try:
-        from .client_base.user_base import PerformanceUser
-    except ImportError:
-        # Locust not available, skip import
-        pass
 
-__version__ = "1.0.12"
+__version__ = "1.0.17"
 __author__ = "Janraj CJ"
 __email__ = "janrajcj@microsoft.com"
 

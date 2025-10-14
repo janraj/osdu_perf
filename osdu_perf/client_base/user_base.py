@@ -26,6 +26,7 @@ class PerformanceUser(HttpUser):
     # Class-level storage for configuration (accessible in static methods)
     _kusto_config = None
     _input_handler_instance = None
+    
 
     def __init__(self, environment):
         super().__init__(environment)
@@ -36,7 +37,7 @@ class PerformanceUser(HttpUser):
     
     def on_start(self):
         """Initialize services and input handling"""
-        self.logger.info(f"PerformanceUser on_start called subscription id is {self.environment}")
+        self.logger.info(f"PerformanceUser on_start called environment is {self.environment}")
         self.input_handler = InputHandler(self.environment)
         
         # Store config at class level for access in static methods

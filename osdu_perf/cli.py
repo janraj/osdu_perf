@@ -239,7 +239,7 @@ def run_azure_load_tests(args):
                 
                 execution_result = runner.run_test(
                     test_name=test_name,  # Using a default test name for initial run
-                    display_name="demo_tests"
+                    display_name=f"dummy_tests-{timestamp}"
                 )
                 import time
                 print("[run_azure_load_tests] STEP 4 Waiting 120 seconds for Azure Load Test to initialize...")
