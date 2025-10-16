@@ -3,6 +3,7 @@ import logging
 import yaml
 from typing import Dict, Any, Optional
 from pathlib import Path
+from datetime import datetime
 
 from .auth import AzureTokenManager
 
@@ -489,6 +490,27 @@ class InputHandler:
         test_settings = self.get_test_settings()
         return test_settings.get('location', 'eastus')
     
+
+    def get_test_name_prefix(self) -> str:
+        """
+        Get test name prefix for performance tests.
+        
+        Returns:
+            Test name prefix string (e.g., "osdu_perf_test").
+        """
+        test_settings = self.get_test_settings()
+        return test_settings.get('test_name_prefix', 'osdu_perf_test')
+
+    def get_test_run_id_description(self) -> str:
+        """
+        Get test run ID description for performance tests.
+
+        Returns:
+            Test run ID description string (e.g., "Test run for search API").
+        """
+        test_settings = self.get_test_settings()
+        return test_settings.get('test_run_id_description', 'Test run for search API')
+
     def load_from_config_file(self, config_path: str) -> None:
         """
         Load configuration from a specific config file path.
@@ -512,3 +534,17 @@ class InputHandler:
             raise ValueError(f"Invalid YAML in config file {config_path}: {e}")
         except Exception as e:
             raise ValueError(f"Error reading config file {config_path}: {e}")
+        
+    def get_test_run_name(self, test_name: str) -> str:
+        """
+        Generate a unique test run name by appending a timestamp to the base test name.
+        Args:
+            test_name: Base name for the test run
+        Returns:
+            Unique test run name with timestamp appended
+        """
+        
+        max_length = 50  # Maximum length for the test run name
+        timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
+        max_base_length = max_length - len(f"{timestamp}")
+        return f"{test_name[:max_base_length]}-{timestamp}"

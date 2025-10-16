@@ -148,7 +148,7 @@ class PerformanceUser(HttpUser):
             ingest_client = QueuedIngestClient(kcsb)
             
             # Use existing test run ID from environment or generate fallback
-            test_run_id = os.getenv("TEST_RUN_ID")
+            test_run_id = os.getenv("TEST_RUN_ID") or os.getenv("TEST_RUN_ID_NAME")
             if not test_run_id:
                 # Fallback to UUID if TEST_RUN_ID not available (shouldn't happen in normal flow)
                 test_run_id = str(uuid.uuid4())
@@ -160,8 +160,8 @@ class PerformanceUser(HttpUser):
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-            sku = input_handler.get_osdu_sku()
-            version = input_handler.get_osdu_version()
+            sku = input_handler.get_osdu_sku(os.getenv("SKU", None))
+            version = input_handler.get_osdu_version(os.getenv("VERSION", None))
             
             # Calculate test duration and max RPS
             stats = environment.runner.stats
