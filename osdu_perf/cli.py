@@ -234,6 +234,14 @@ def run_azure_load_tests(args):
                 print(f"⚠️ Warning: Failed to setup OSDU entitlements: {e}")
                 print("📝 You may need to setup entitlements manually")
             
+            execution_result = runner.run_test(
+                    test_name=test_name,
+                    display_name="dummy_test"+timestamp
+            )
+                
+            import time
+            print("[run_azure_load_tests] STEP 4 Waiting 360 seconds for Azure Load Test to initialize...")
+            time.sleep(360)
 
             # Trigger the load test execution
             print("[run_azure_load_tests] STEP 4 Starting load test execution...")

@@ -138,12 +138,16 @@ class InputHandler:
             token_manager = AzureTokenManager(client_id=self.app_id, use_managed_identity=False)
             
         #token = token_manager.get_access_token("https://management.azure.com/.default") 
+        test_run_id = os.getenv("TEST_RUN_ID_NAME", None) or os.getenv("TEST_RUN_ID", None)
+        self.logger.info(f"Retrieved Test Run ID from environment: os.getenv('TEST_RUN_ID')={os.getenv('TEST_RUN_ID')}, os.getenv('TEST_RUN_ID_NAME')={os.getenv('TEST_RUN_ID_NAME')}")
+        if test_run_id is None:
+            test_run_id = self.get_test_run_id_prefix() + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
         token = token_manager.get_access_token(scope=f"api://{self.app_id}/.default")
         headers = {
             "Content-Type": "application/json",
-            "x-data-partition-id": self.partition,
-            "x-correlation-id": self.app_id,
+            "data-partition-id": self.partition,
+            "correlation-id": test_run_id,
             "Authorization": f"Bearer {token}"
         }
         return headers
@@ -543,7 +547,7 @@ class InputHandler:
         Returns:
             Unique test run name with timestamp appended
         """
-        
+
         max_length = 50  # Maximum length for the test run name
         timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
         max_base_length = max_length - len(f"{timestamp}")
