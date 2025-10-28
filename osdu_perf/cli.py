@@ -2,6 +2,7 @@
 CLI interface for the OSDU Performance Testing Framework.
 """
 import os
+
 os.environ.setdefault('GEVENT_SUPPORT', 'False')
 import argparse
 import sys
@@ -97,7 +98,7 @@ def run_azure_load_tests(args):
     spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
     run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
     engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
-
+   
     
     # Generate test run ID using configured prefix
     test_run_id_prefix = input_handler.get_test_run_id_prefix()
@@ -139,9 +140,15 @@ def run_azure_load_tests(args):
     
     # Generate unique test name if not provided (use test_run_id as base)
     test_name = getattr(args, 'test_name', None)
+    test_name = input_handler.get_test_name_prefix()
+    test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
+
     if not test_name:
         test_name = test_run_id  # Use the generated test run ID as the test name
     
+    #
+    execution_display_name = input_handler.get_test_run_name(test_name)
+
     # Use the provided load test resource name (default: "osdu-perf-dev")
     loadtest_name = args.loadtest_name
     
@@ -164,7 +171,10 @@ def run_azure_load_tests(args):
             "Tool": "osdu-perf",
             "TestName": test_name,
             "TestRunId": test_run_id
-        }
+        },
+        sku=sku,
+        version=version,
+        test_runid_name=execution_display_name
     )
     
     # Create the load test resource
@@ -224,35 +234,23 @@ def run_azure_load_tests(args):
                 print(f"⚠️ Warning: Failed to setup OSDU entitlements: {e}")
                 print("📝 You may need to setup entitlements manually")
             
+            execution_result = runner.run_test(
+                    test_name=test_name,
+                    display_name="dummy_test"+timestamp
+            )
+                
+            import time
+            print("[run_azure_load_tests] STEP 4 Waiting 360 seconds for Azure Load Test to initialize...")
+            time.sleep(360)
 
             # Trigger the load test execution
             print("[run_azure_load_tests] STEP 4 Starting load test execution...")
             try:
-                # Create a display name that fits Azure Load Testing constraints (2-50 characters)
-                timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
-                base_name = test_name[:25] if len(test_name) > 25 else test_name  # Limit base name
-                execution_display_name = f"{base_name}-{timestamp}"
-                
-                # Ensure total length doesn't exceed 50 characters
-                if len(execution_display_name) > 50:
-                    # Truncate base_name further if needed
-                    max_base_length = 50 - len(f"{timestamp}")
-                    base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
-                    execution_display_name = f"{base_name}-{timestamp}"
-                
-                execution_result = runner.run_test(
-                    test_name=test_name,  # Using a default test name for initial run
-                    display_name=f"dummy_tests-{timestamp}"
-                )
-                import time
-                print("[run_azure_load_tests] STEP 4 Waiting 120 seconds for Azure Load Test to initialize...")
-                time.sleep(360)
-
                 execution_result = runner.run_test(
                     test_name=test_name,
                     display_name=execution_display_name
                 )
-
+                
                 
                 if execution_result:
                     execution_id = execution_result.get('testRunId', execution_result.get('name', execution_result.get('id', 'unknown')))

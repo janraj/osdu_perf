@@ -16,7 +16,7 @@ class InitRunner:
     def create_project_config(self, output_path: Path, service_name: str = None) -> None:
         """Creates a config.yaml file for the project."""
         username = getpass.getuser()
-        test_run_id_prefix = f"{username}_{service_name}_test" if service_name else f"{username}_osdu_test"
+        test_name_prefix = f"{username}_{service_name}" if service_name else f"{username}_osdu_test"
         
         
 
@@ -62,7 +62,8 @@ test_settings:
   spawn_rate: 2
   run_time: "60s"
   engine_instances: 1
-  test_run_id_prefix: "{test_run_id_prefix}"
+  test_name_prefix: "{test_name_prefix}"
+  test_run_id_description: "Test run for {service_name} api"
 """
         output_path.write_text(config_content, encoding='utf-8')
         print(f"[create_project_config] Created config.yaml at {output_path} generated prefix {test_run_id_prefix}")

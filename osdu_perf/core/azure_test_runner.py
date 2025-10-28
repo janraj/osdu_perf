@@ -56,7 +56,11 @@ class AzureLoadTestRunner:
                  resource_group_name: str,
                  load_test_name: str,
                  location: str = "eastus",
-                 tags: Optional[Dict[str, str]] = None):
+                 tags: Optional[Dict[str, str]] = None,
+                 sku: str = "Standard",
+                 version: str = "25.1.23", 
+                 test_runid_name: str = "osdu-perf-test"):
+        
         """
         Initialize the Azure Load Test Manager.
         
@@ -73,7 +77,10 @@ class AzureLoadTestRunner:
         self.load_test_name = load_test_name
         self.location = location
         self.tags = tags or {"Environment": "Performance Testing", "Service": "OSDU"}
-        
+        self.sku = sku
+        self.version = version
+        self.test_runid_name = test_runid_name
+
         # Azure API endpoints
         self.management_base_url = "https://management.azure.com"
         self.api_version = "2024-12-01-preview"
@@ -362,7 +369,8 @@ class AzureLoadTestRunner:
             if app_id:
                 environment_variables["APPID"] = app_id
             
-            
+            environment_variables["SKU"] = self.sku
+            environment_variables["VERSION"] = self.version
             # Load Test Parameters - convert run_time to seconds integer
             environment_variables["LOCUST_USERS"] = str(users)
             environment_variables["LOCUST_SPAWN_RATE"] = str(spawn_rate)
@@ -372,10 +380,11 @@ class AzureLoadTestRunner:
             # Additional OSDU-specific environment variables that tests might need
             environment_variables["OSDU_ENV"] = "performance_test"
             environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
+            environment_variables["TEST_RUN_ID_NAME"] = self.test_runid_name
             
             body = {
                 "displayName": display_name,
-                "description": f"Load test for OSDU performance using Locust framework - {users} users, {spawn_rate} spawn rate, {run_time} duration",
+                "description": f"Load test for Service {test_name} , SKU {self.sku}, Version {self.version}",
                 "kind": "Locust",  # Specify Locust as the testing framework
                 "engineBuiltinIdentityType": "SystemAssigned",
                 "loadTestConfiguration": {
@@ -1183,7 +1192,9 @@ def main():
             resource_group_name=RESOURCE_GROUP,
             load_test_name=LOAD_TEST_NAME,
             location=LOCATION,
-            tags={"Environment": "Demo", "Project": "OSDU"}
+            tags={"Environment": "Demo", "Project": "OSDU"},
+            sku="Standard",
+            version="25.1.23"
         )
         
         # Create the load test

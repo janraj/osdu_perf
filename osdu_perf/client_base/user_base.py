@@ -27,13 +27,27 @@ class PerformanceUser(HttpUser):
     _kusto_config = None
     _input_handler_instance = None
     
+    @staticmethod
+    def _setup_logging():
+        """Setup logging configuration with the specified format."""
+        logger = logging.getLogger(__name__)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s -  %(filename)s:%(funcName)s:%(lineno)d - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        return logger
+    
 
     def __init__(self, environment):
         super().__init__(environment)
         self.service_orchestrator = ServiceOrchestrator()
         self.input_handler = None
         self.services = []
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = self._setup_logging()
     
     def on_start(self):
         """Initialize services and input handling"""
@@ -56,7 +70,7 @@ class PerformanceUser(HttpUser):
             # make a per-service copy of the base headers so Authorization doesn't leak between services
             header = dict(self.input_handler.header)
             if hasattr(service, 'provide_explicit_token') and callable(service.provide_explicit_token):
-                print("[PerformanceUser][provide_explicit_token] Checking any explicit token provided or not")
+                self.logger.info("[PerformanceUser][provide_explicit_token] Checking any explicit token provided or not")
                 try:
                     token = service.provide_explicit_token()
                     # if subclass implemented the method but returned nothing (e.g. `pass` -> None), skip setting Authorization
@@ -116,16 +130,27 @@ class PerformanceUser(HttpUser):
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         """Called once when the test finishes."""
+        # Setup logger for this static method
+        logger = logging.getLogger(__name__)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s -  %(filename)s:%(funcName)s:%(lineno)d - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        
         # Get Kusto configuration from InputHandler
         kusto_config = PerformanceUser._kusto_config
         input_handler = PerformanceUser._input_handler_instance
         
         if not kusto_config or not input_handler:
-            print("⚠️  No Kusto configuration available, skipping metrics push")
+            logger.warning("No Kusto configuration available, skipping metrics push")
             return
         
         if not input_handler.is_kusto_enabled():
-            print("ℹ️  Kusto metrics collection is disabled")
+            logger.info("Kusto metrics collection is disabled")
             return
         
         test_run_environment = "Local"
@@ -136,32 +161,32 @@ class PerformanceUser(HttpUser):
             if is_azure_load_test:
                 test_run_environment = "Azure Load Test"
                 auth_method = "managed_identity"
-                print(f"📊 Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
-                print(f"🔐 Using authentication method: {auth_method} (Azure Load Test environment detected)")
+                logger.info(f"Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                logger.info(f"Using authentication method: {auth_method} (Azure Load Test environment detected)")
                 kcsb = KustoConnectionStringBuilder.with_aad_managed_service_identity_authentication(kusto_config['cluster'])
             else:
                 auth_method = "az_cli"
-                print(f"📊 Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
-                print(f"🔐 Using authentication method: {auth_method} (local environment detected)")
+                logger.info(f"Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                logger.info(f"Using authentication method: {auth_method} (local environment detected)")
                 kcsb = KustoConnectionStringBuilder.with_az_cli_authentication(kusto_config['cluster'])
             
             ingest_client = QueuedIngestClient(kcsb)
             
             # Use existing test run ID from environment or generate fallback
-            test_run_id = os.getenv("TEST_RUN_ID")
+            test_run_id = os.getenv("TEST_RUN_ID_NAME", None) or os.getenv("TEST_RUN_ID", None)
             if not test_run_id:
                 # Fallback to UUID if TEST_RUN_ID not available (shouldn't happen in normal flow)
                 test_run_id = str(uuid.uuid4())
-                print(f"⚠️  TEST_RUN_ID not found in environment, using fallback: {test_run_id}")
-            else:
-                print(f"📋 Using Test Run ID from environment: {test_run_id}")
+                logger.warning(f"TEST_RUN_ID not found in environment, using fallback: {test_run_id}")
+            
+            logger.info(f"Using Test Run ID : {test_run_id}")
                 
             current_timestamp = datetime.utcnow()
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-            sku = input_handler.get_osdu_sku()
-            version = input_handler.get_osdu_version()
+            sku = input_handler.get_osdu_sku(os.getenv("SKU", None))
+            version = input_handler.get_osdu_version(os.getenv("VERSION", None))
             
             # Calculate test duration and max RPS
             stats = environment.runner.stats
@@ -174,7 +199,7 @@ class PerformanceUser(HttpUser):
                     test_duration = 0
                     max_rps = 0
             except Exception as e:
-                print(f"Error calculating test metrics: {e}")
+                logger.error(f"Error calculating test metrics: {e}")
                 test_duration = 0
                 max_rps = 0
 
@@ -335,7 +360,7 @@ class PerformanceUser(HttpUser):
                     io.StringIO(stats_csv), 
                     stats_ingestion_props
                 )
-                print(f"✅ Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
+                logger.info(f"Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
 
             if exceptions_results:
                 exceptions_headers = ["TestEnv", "TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
@@ -345,7 +370,7 @@ class PerformanceUser(HttpUser):
                     io.StringIO(exceptions_csv), 
                     exceptions_ingestion_props
                 )
-                print(f"✅ Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
+                logger.info(f"Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
 
             if summary_results:
                 summary_headers = ["TestEnv", "TestRunId", "ADME", "Partition", "SKU", "Version", "TotalRequests", 
@@ -360,15 +385,15 @@ class PerformanceUser(HttpUser):
                     io.StringIO(summary_csv), 
                     summary_ingestion_props
                 )
-                print(f"✅ Summary data pushed to Kusto (LocustTestSummary table): 1 record")
+                logger.info(f"Summary data pushed to Kusto (LocustTestSummary table): 1 record")
 
-            print(f"🆔 Test Run ID: {test_run_id}")
+            logger.info(f"Test Run ID: {test_run_id}")
 
         except Exception as e:
-            print(f"❌ Error pushing metrics to Kusto: {e}")
+            logger.error(f"Error pushing metrics to Kusto: {e}")
             # Optionally log the error details for debugging
             import traceback
-            print(f"📋 Error details: {traceback.format_exc()}")
+            logger.error(f"Error details: {traceback.format_exc()}")
 
     @events.request.add_listener
     def on_request(request_type, name, response_time, response_length, response, **kwargs):
