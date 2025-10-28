@@ -214,16 +214,15 @@ class {service_name_clean}PerformanceTest(BaseService):
 
         readme_content = f'''# {service_name.title()} Service Performance Tests
 
-This project contains performance tests for the OSDU {service_name.title()} Service using the OSDU Performance Testing Framework.
+This project contains performance tests for the OSDU {service_name.title()} Service using the OSDU Performance Testing Framework v1.0.24.
 
 ## 📁 Project Structure
 
 ```
 perf_tests/
-├── config.yaml               # Framework configuration (metrics, test settings)
-├── locustfile.py              # Main Locust configuration
-├── perf_{service_name}_test.py        # {service_name.title()} service tests
-├── requirements.txt           # Python dependencies
+├── config.yaml               # Framework configuration (OSDU connection, metrics, test settings)
+├── locustfile.py              # Main test file with API calls and @task methods
+├── requirements.txt          # Python dependencies (osdu_perf package)
 └── README.md                 # This file
 ```
 
@@ -231,209 +230,284 @@ perf_tests/
 
 ### 1. Install Dependencies
 ```bash
-pip install -r requirements.txt
+pip install osdu_perf
 ```
 
-### 2. Configure Framework Settings
+### 2. Configure Your Environment
 Edit `config.yaml` and update:
-- Kusto metrics collection settings
+- OSDU environment details (host, partition, app_id)
+- Kusto metrics collection settings (optional)
 - Test defaults (users, spawn rate, wait time)
 
-### 3. Configure Your Test Environment
-Edit `perf_{service_name}_test.py` and update:
+### 3. Customize Your Tests
+Edit `locustfile.py` and add @task methods with:
 - API endpoints for {service_name} service
-- Test data and scenarios
-- Authentication requirements
+- Test scenarios using self.get(), self.post(), etc.
+- Custom load patterns and user behavior
 
-### 3. Run Performance Tests
+### 4. Run Performance Tests
+
+#### Local Testing (Development)
 ```bash
-# Basic run with 10 users
-locust -f locustfile.py --host https://your-api-host.com --partition your-partition --appid your-app-id
+# Basic run using config.yaml
+osdu_perf run local --config config.yaml
 
-# Run with specific user count and spawn rate
-locust -f locustfile.py --host https://your-api-host.com --partition your-partition --appid your-app-id -u 50 -r 5
+# Override specific settings for testing
+osdu_perf run local --config config.yaml --users 5 --run-time 30s
 
-# Run headless mode for CI/CD
-locust -f locustfile.py --host https://your-api-host.com --partition your-partition --appid your-app-id --headless -u 10 -r 2 -t 60s
+# Run with specific parameters
+osdu_perf run local \\
+  --config config.yaml \\
+  --host https://your-osdu-host.com \\
+  --partition your-partition-id \\
+  --app-id your-azure-app-id \\
+  --users 10 --run-time 60s
+```
+
+#### Azure Load Testing (Production Scale)
+```bash
+# Deploy and run on Azure Load Testing service
+osdu_perf run azure \\
+  --config config.yaml \\
+  --subscription-id your-azure-subscription-id \\
+  --resource-group your-resource-group \\
+  --location eastus
+
+# High-scale testing
+osdu_perf run azure \\
+  --config config.yaml \\
+  --subscription-id your-azure-subscription-id \\
+  --resource-group your-resource-group \\
+  --location eastus \\
+  --users 100 --engine-instances 5 --run-time 10m
 ```
 
 ## 📝 Writing Performance Tests
 
-### Test File Structure
-Your test file `perf_{service_name}_test.py` follows this pattern:
+### Simple API-Based Approach
+
+Your main test file `locustfile.py` uses this simple pattern:
 
 ```python
-from osdu_perf.core.base_service import BaseService
+import os
+from locust import events, task
+from osdu_perf import PerformanceUser
 
-class {service_name.title()}PerformanceTest(BaseService):
-    def __init__(self, client=None):
-        super().__init__(client)
-        self.name = "{service_name}"
+@events.init_command_line_parser.add_listener
+def add_custom_args(parser):
+    \"\"\"Add OSDU-specific command line arguments\"\"\"
+    parser.add_argument("--partition", type=str, default=os.getenv("PARTITION"), help="OSDU Data Partition ID")
+    parser.add_argument("--appid", type=str, default=os.getenv("APPID"), help="Azure AD Application ID")
+
+class OSDUUser(PerformanceUser):
+    \"\"\"
+    OSDU Performance Test User
     
-    def execute(self, headers=None, partition=None, base_url=None):
-        # Your test scenarios go here
-        self._test_health_check(headers, base_url)
-        self._test_your_scenario(headers, partition, base_url)
+    This class automatically handles:
+    - Azure authentication and token management
+    - HTTP headers and request setup
+    - Locust user simulation and load testing
+    \"\"\"
+    
+    def on_start(self):
+        \"\"\"Called when a user starts\"\"\"
+        super().on_start()
+        print(f"🚀 Started performance testing user")
+    
+    @task(3)  # Higher weight = more frequent execution
+    def test_{service_name}_health(self):
+        # Simple API call - framework handles headers, tokens automatically
+        self.get("/api/{service_name}/v1/health")
+    
+    @task(2) 
+    def test_{service_name}_info(self):
+        self.get("/api/{service_name}/v1/info")
+    
+    @task(1)
+    def test_{service_name}_operations(self):
+        # POST request with JSON data
+        self.post("/api/{service_name}/v1/records", json={{
+            "kind": f"osdu:wks:{{partition}}:{service_name}:1.0.0",
+            "data": {{"test": "data"}}
+        }})
 ```
 
-### Key Points:
-1. **Class Name**: Must end with `PerformanceTest` and inherit from `BaseService`
-2. **File Name**: Must follow `perf_*_test.py` naming pattern for auto-discovery
-3. **execute() Method**: Entry point for all your test scenarios
-4. **HTTP Client**: Use `self.client` for making requests (pre-configured with Locust)
+### Key Implementation Points:
 
-### Adding Test Scenarios
+1. **Class Name**: Must inherit from `PerformanceUser` - handles all authentication automatically
+2. **File Name**: Use `locustfile.py` - standard Locust convention
+3. **@task Methods**: Mark test methods with `@task(weight)` decorator
+4. **Simple HTTP calls**: Use `self.get()`, `self.post()`, `self.put()`, `self.delete()`
+5. **No manual auth**: Framework automatically handles Azure AD tokens and HTTP headers
 
-Create methods for each test scenario:
-
-```python
-def _test_create_record(self, headers, partition, base_url):
-    \"\"\"Test record creation\"\"\"
-    test_data = {{
-        "kind": f"osdu:wks:{{partition}}:{service_name}:1.0.0",
-        "data": {{"test": "data"}}
-    }}
-    
-    response = self.client.post(
-        f"{{base_url}}/api/{service_name}/v1/records",
-        json=test_data,
-        headers=headers,
-        name="{service_name}_create_record"  # This appears in Locust UI
-    )
-    
-    # Add assertions or validations
-    assert response.status_code == 201, f"Expected 201, got {{response.status_code}}"
-```
-
-### HTTP Request Examples
+### Available HTTP Methods
 
 ```python
 # GET request
-response = self.client.get(
-    f"{{base_url}}/api/{service_name}/v1/records/{{record_id}}",
-    headers=headers,
-    name="{service_name}_get_record"
-)
+self.get("/api/{service_name}/v1/records/12345")
 
-# POST request with JSON
-response = self.client.post(
-    f"{{base_url}}/api/{service_name}/v1/records",
-    json=data,
-    headers=headers,
-    name="{service_name}_create"
-)
+# POST request with JSON data
+self.post("/api/{service_name}/v1/records", json={{
+    "kind": "osdu:wks:partition:{service_name}:1.0.0",
+    "data": {{"test": "data"}}
+}})
 
 # PUT request
-response = self.client.put(
-    f"{{base_url}}/api/{service_name}/v1/records/{{record_id}}",
-    json=updated_data,
-    headers=headers,
-    name="{service_name}_update"
-)
+self.put("/api/{service_name}/v1/records/12345", json=updated_data)
 
-# DELETE request
-response = self.client.delete(
-    f"{{base_url}}/api/{service_name}/v1/records/{{record_id}}",
-    headers=headers,
-    name="{service_name}_delete"
-)
+# DELETE request  
+self.delete("/api/{service_name}/v1/records/12345")
+
+# Custom headers (if needed - auth headers added automatically)
+self.get("/api/{service_name}/v1/info", headers={{"Custom-Header": "value"}})
 ```
 
 ## 🔧 Configuration
 
 ### Framework Configuration (config.yaml)
+
 The `config.yaml` file contains framework-wide settings:
 
 ```yaml
-# Metrics Collection Configuration
+# OSDU Environment Configuration
+osdu_environment:
+  host: "https://your-osdu-host.com"
+  partition: "your-partition-id"
+  app_id: "your-azure-app-id"
+  sku: "Standard"
+  version: "25.2.35"
+
+# Metrics Collection Configuration  
 metrics_collector:
   kusto:
-    cluster: "https://your-kusto.eastus.kusto.windows.net"
+    cluster: "https://your-kusto-cluster.eastus.kusto.windows.net"
     database: "your-database"
     ingest_uri: "https://ingest-your-kusto.eastus.kusto.windows.net"
 
 # Test Configuration
 test_settings:
+  subscription_id: "your-azure-subscription-id"
+  resource_group: "your-resource-group"
+  location: "eastus"
   default_wait_time: 
     min: 1
     max: 3
-  default_users: 10
-  default_spawn_rate: 2
-  default_run_time: "60s"
+  users: 10
+  spawn_rate: 2
+  run_time: "60s"
+  engine_instances: 1
 ```
 
-### Required CLI Arguments
-- `--host`: Base URL of your OSDU instance
-- `--partition`: Data partition ID
-- `--appid`: Azure AD Application ID
+### Configuration Hierarchy
 
-### Optional Arguments
-- `-u, --users`: Number of concurrent users (default: 1)
-- `-r, --spawn-rate`: User spawn rate per second (default: 1)
-- `-t, --run-time`: Test duration (e.g., 60s, 5m, 1h)
-- `--headless`: Run without web UI (for CI/CD)
+Settings are resolved in this order (highest priority first):
+1. **CLI arguments** - Direct command-line overrides
+2. **Environment variables** - Runtime values
+3. **config.yaml** - Project-specific settings  
+4. **Framework defaults** - Built-in defaults
+
+### Environment Variables
+
+**Local Development:**
+- `OSDU_HOST`: OSDU instance URL
+- `OSDU_PARTITION`: Data partition ID
+- `OSDU_APP_ID`: Azure AD Application ID
+- `ADME_BEARER_TOKEN`: Manual token override
+
+**Azure Load Testing (auto-set):**
+- `AZURE_LOAD_TEST=true`: Indicates Azure environment
+- `PARTITION`, `LOCUST_HOST`, `APPID`: Set by Azure Load Testing
 
 ### Authentication
-The framework automatically handles Azure authentication using:
-- Azure CLI credentials (for local development)
-- Managed Identity (for cloud environments)
-- Service Principal (with environment variables)
+
+The framework automatically handles Azure authentication:
+
+**Local Development:**
+- Azure CLI credentials (`az login`)
+- Service Principal (environment variables)
+- DefaultAzureCredential chain
+
+**Azure Environments:**
+- Managed Identity (preferred)
+- Automatic credential detection and fallback
 
 ## 📊 Monitoring and Results
 
-### Locust Web UI
-- Open http://localhost:8089 after starting Locust
-- Monitor real-time performance metrics
-- View request statistics and response times
-- Download results as CSV
+### Local Testing
+- **Web UI**: Open http://localhost:8089 during test execution
+- **Real-time metrics**: Request rates, response times, error rates
+- **Results export**: Download CSV reports for analysis
 
-### Key Metrics to Monitor
+### Azure Load Testing
+- **Azure Portal**: Monitor in Azure Portal under "Load Testing"
+- **Comprehensive dashboards**: Detailed performance metrics and trends
+- **Automated retention**: Results stored automatically
+- **Integration**: Works with Azure Monitor and Application Insights
+
+### Key Metrics
 - **Requests per second (RPS)**
-- **Average response time**  
-- **95th percentile response time**
-- **Error rate**
-- **Failure count by endpoint**
+- **Response time percentiles** (50th, 90th, 95th, 99th)
+- **Error rate and failure counts**
+- **Throughput and content transfer rates**
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
 1. **Authentication Errors**
-   ```
-   Solution: Ensure Azure CLI is logged in or proper credentials are configured
-   ```
-
-2. **Import Errors**
-   ```
-   Solution: Run `pip install -r requirements.txt`
-   ```
-
-3. **Service Discovery Issues**
-   ```
-   Solution: Ensure test file follows perf_*_test.py naming pattern
+   ```bash
+   # Ensure Azure CLI is logged in for local testing
+   az login
+   
+   # Or verify environment variables
+   echo $ADME_BEARER_TOKEN
    ```
 
-4. **SSL/TLS Errors**
+2. **Test File Issues**
+   ```bash
+   # Ensure locustfile.py exists and inherits from PerformanceUser
+   ls locustfile.py
+   
+   # Check class inheritance
+   grep "PerformanceUser" locustfile.py
    ```
-   Solution: Add --skip-tls-verify flag if using self-signed certificates
+
+3. **Configuration Issues**
+   ```bash
+   # Validate config.yaml syntax
+   python -c "import yaml; yaml.safe_load(open('config.yaml'))"
    ```
+
+4. **Missing Dependencies**
+   ```bash
+   # Install framework and dependencies
+   pip install osdu_perf
+   ```
+
+### Debugging Tips
+
+- Use `--verbose` flag for detailed logging
+- Check Azure CLI authentication: `az account show`
+- Verify OSDU connectivity manually before running tests
+- Start with small user counts (1-5) for initial testing
 
 ## 📚 Additional Resources
 
+- [OSDU Performance Framework Documentation](https://github.com/janraj/osdu_perf)
 - [Locust Documentation](https://docs.locust.io/)
-- [OSDU Performance Framework GitHub](https://github.com/janraj/osdu-perf)
-- [Azure Authentication Guide](https://docs.microsoft.com/en-us/azure/developer/python/azure-sdk-authenticate)
+- [Azure Load Testing](https://docs.microsoft.com/en-us/azure/load-testing/)
+- [Azure Authentication](https://docs.microsoft.com/en-us/azure/developer/python/azure-sdk-authenticate)
 
 ## 🤝 Contributing
 
-1. Follow the existing code patterns
-2. Add comprehensive test scenarios
-3. Update this README with new features
-4. Test thoroughly before submitting changes
+1. Follow the existing code patterns and framework conventions
+2. Add comprehensive test scenarios for the {service_name} service
+3. Update this README with service-specific information
+4. Test thoroughly in both local and Azure environments
 
 ---
 
-**Generated by OSDU Performance Testing Framework v1.0.5**
+**Generated by OSDU Performance Testing Framework v1.0.24**
 '''
         
         output_path.write_text(readme_content, encoding='utf-8')
@@ -441,7 +515,7 @@ The framework automatically handles Azure authentication using:
 
     def create_locustfile_template(self, output_path: Path, service_name:str):
         service_list = service_name or ["example"]
-        services_comment = f"# This will auto-discover and run: perf_{service_list[0]}_test.py" if service_list else "# This will auto-discover and run all perf_*_test.py files"
+        services_comment = f"# Simple API-based performance testing for {service_list[0]} service"
 
         template = f'''"""
 OSDU Performance Tests - Locust Configuration
@@ -451,7 +525,7 @@ Generated by OSDU Performance Testing Framework
 """
 
 import os
-from locust import events
+from locust import events, task
 from osdu_perf import PerformanceUser
 
 
@@ -470,9 +544,9 @@ class OSDUUser(PerformanceUser):
     OSDU Performance Test User
     
     This class automatically:
-    - Discovers all perf_*_test.py files in the current directory
-    - Handles Azure authentication using --appid
-    - Orchestrates test execution with proper headers and context
+    - Handles Azure authentication and token management
+    - Manages HTTP headers and request setup
+    - Provides simple API methods (get, post, put, delete)
     - Manages Locust user simulation and load testing
     
     Usage:
@@ -506,16 +580,11 @@ class OSDUUser(PerformanceUser):
         """Called when a user stops - performs cleanup"""
         print("🛑 Stopped performance testing user")
 
+    @task(1)
+    def check_service_health(self):
+        # *** Simple and clean consumer call ***
+        self.get("/api/{service_name}/v1/health")
 
-# Optional: Add custom tasks here if needed
-# from locust import task
-# 
-# class CustomOSDUUser(OSDUUser):
-#     @task(weight=1)
-#     def custom_task(self):
-#         """Custom task example"""
-#         # Your custom test logic here
-#         pass
 '''
         output_path.write_text(template, encoding='utf-8')
         print(f"[create_locustfile_template] Created {output_path.name}")
@@ -611,7 +680,7 @@ class OSDUUser(PerformanceUser):
             os.makedirs(project_name, exist_ok=True)
         
         files_to_create = [
-            {"name": test_filename, "creator": self.create_service_test_file, "args": [service_name]},
+            #{"name": test_filename, "creator": self.create_service_test_file, "args": [service_name]},
             {"name": "requirements.txt", "creator": self.create_requirements_file, "args": []},
             {"name": "README.md", "creator": self.create_project_readme, "args": [service_name]},
             {"name": "locustfile.py", "creator": self.create_locustfile_template, "args": [service_name]},

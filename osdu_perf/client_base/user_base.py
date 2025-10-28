@@ -18,7 +18,7 @@ class PerformanceUser(HttpUser):
     Base user class for performance testing with automatic service discovery.
     Inherit from this class in your locustfile.
     """
-
+    abstract = True
     # Default pacing between tasks - will be updated from config in on_start
     wait_time = between(1, 3)
     host = "https://localhost"  # Default host for testing
@@ -62,7 +62,37 @@ class PerformanceUser(HttpUser):
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()
     
-   
+    def get(self, endpoint, name=None, headers=None, **kwargs):
+        return self._request("GET", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
+
+    def post(self, endpoint, data=None, name=None, headers=None, **kwargs)
+        return self._request("POST", f"{self.input_handler.base_url}{endpoint}", name, headers, json=data, **kwargs)
+
+    def put(self, endpoint, data=None, name=None, headers=None, **kwargs):
+        return self._request("PUT", f"{self.input_handler.base_url}{endpoint}", name, headers, json=data, **kwargs)
+
+    def delete(self, endpoint, name=None, headers=None, **kwargs):
+        return self._request("DELETE", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
+
+    def _request(self, method, url, name, headers, **kwargs):
+        self.logger.debug(f"[PerformanceUser] Making {method} request to {url} with name={name} ")   
+        merged_headers = dict(self.input_handler.header)
+        token = os.getenv("ADME_BEARER_TOKEN", None)
+        if token:
+            self.logger.debug("[PerformanceUser] Using ADME_BEARER_TOKEN from environment for Authorization header")
+            merged_headers['Authorization'] = f"Bearer {token}"
+        if headers:
+            self.logger.debug(f"[PerformanceUser] Merging additional headers: {headers}")   
+            merged_headers.update(headers)
+
+        with self.client.request(method=method,url=url,headers=merged_headers,name=name or url,catch_response=True,**kwargs) as response:
+            if not response.ok:
+                self.logger.error(f"[PerformanceUser] {method} {url} failed with status code {response.status_code}")   
+                response.failure(f"{method} {url} failed with {response.status_code}")
+            self.logger.debug(f"[PerformanceUser] {method} {url} succeeded with status code {response.status_code}")
+            return response
+        
+    '''
     @task
     def execute_services(self):
         """Execute all registered services"""
@@ -110,6 +140,7 @@ class PerformanceUser(HttpUser):
                     )
                 except Exception as e:
                     self.logger.error(f"Service posthook failed: {e}")
+    '''
     @staticmethod
     def get_ADME_name(host):
         """Return the ADME name for this user class"""
