@@ -11,3 +11,4 @@ global-exclude .venv/
 global-exclude dist/
 global-exclude build/
 global-exclude osdu_perf/perf_tests/
+global-exclude osdu_perf_env/

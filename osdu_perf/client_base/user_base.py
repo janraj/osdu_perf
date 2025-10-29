@@ -56,16 +56,37 @@ class PerformanceUser(HttpUser):
         
         # Store config at class level for access in static methods
         PerformanceUser._kusto_config = self.input_handler.get_kusto_config()
-        PerformanceUser._input_handler_instance = self.input_handler
-        
-        
+        PerformanceUser._input_handler_instance = self.input_handler      
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()
+
+    def get_host(self):
+        """Return the host URL for this user"""
+        return self.input_handler.base_url
+    
+    def get_partition(self):
+        """Return the partition for this user"""
+        return self.input_handler.partition
+    
+    def get_appid(self):
+        """Return the app ID for this user"""
+        return self.input_handler.app_id
+    
+    def get_token(self):
+        """Return the token for this user"""
+        return os.getenv('ADME_BEARER_TOKEN')
+    
+    def get_headers(self):
+        """Return the default headers for this user"""
+        return self.input_handler.header
+    
+    def get_logger(self):
+        return self.logger
     
     def get(self, endpoint, name=None, headers=None, **kwargs):
         return self._request("GET", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
 
-    def post(self, endpoint, data=None, name=None, headers=None, **kwargs)
+    def post(self, endpoint, data=None, name=None, headers=None, **kwargs):
         return self._request("POST", f"{self.input_handler.base_url}{endpoint}", name, headers, json=data, **kwargs)
 
     def put(self, endpoint, data=None, name=None, headers=None, **kwargs):
@@ -75,7 +96,7 @@ class PerformanceUser(HttpUser):
         return self._request("DELETE", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
 
     def _request(self, method, url, name, headers, **kwargs):
-        self.logger.debug(f"[PerformanceUser] Making {method} request to {url} with name={name} ")   
+        self.logger.info(f"[PerformanceUser] Making {method} request to {url} with name={name} ")   
         merged_headers = dict(self.input_handler.header)
         token = os.getenv("ADME_BEARER_TOKEN", None)
         if token:
@@ -85,7 +106,7 @@ class PerformanceUser(HttpUser):
             self.logger.debug(f"[PerformanceUser] Merging additional headers: {headers}")   
             merged_headers.update(headers)
 
-        with self.client.request(method=method,url=url,headers=merged_headers,name=name or url,catch_response=True,**kwargs) as response:
+        with self.client.request(method=method,url=url,headers=merged_headers,name=name,catch_response=True,**kwargs) as response:
             if not response.ok:
                 self.logger.error(f"[PerformanceUser] {method} {url} failed with status code {response.status_code}")   
                 response.failure(f"{method} {url} failed with {response.status_code}")

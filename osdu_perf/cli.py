@@ -12,6 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from . import __version__
+from .utils.logger import get_logger
+
+# Initialize logger
+logger = get_logger('cli')
+
 
 def _backup_existing_files(project_name: str, service_name: str) -> None:
     """
@@ -26,9 +32,9 @@ def _backup_existing_files(project_name: str, service_name: str) -> None:
     
     try:
         shutil.copytree(project_name, backup_dir)
-        print(f"✅ Backup created at: {backup_dir}")
+        logger.info(f"✅ Backup created at: {backup_dir}")
     except Exception as e:
-        print(f"❌ Failed to create backup: {e}")
+        logger.error(f"❌ Failed to create backup: {e}")
         raise
 
 
@@ -41,7 +47,7 @@ def run_local_tests(args):
     except ImportError:
         pass
 
-    print("[cli] Starting Local Performance Tests")
+    logger.info("Starting Local Performance Tests")
     # Create LocalTestRunner instance and run tests
     from osdu_perf.core.input_handler import InputHandler
     from osdu_perf.core.local_test_runner import LocalTestRunner
@@ -65,17 +71,17 @@ def run_azure_load_tests(args):
     try:
         from osdu_perf.core.azure_test_runner import AzureLoadTestRunner
     except ImportError as e:
-        print(f"❌ Error importing AzureLoadTestRunner: {e}")
+        logger.error(f"❌ Error importing AzureLoadTestRunner: {e}")
         sys.exit(1)
     
-    print("[run_azure_load_tests] Starting Azure Load Test Setup (Config-driven)")
-    print("=" * 60)
+    logger.info("Starting Azure Load Test Setup (Config-driven)")
+    logger.info("=" * 60)
     
     from osdu_perf.core.input_handler import InputHandler
     
     
     # Load configuration
-    print(f"[run_azure_load_tests] Loading configuration from: {args.config}")
+    logger.info(f"Loading configuration from: {args.config}")
     input_handler = InputHandler(None)  # Create instance for config-only mode
     input_handler.load_from_config_file(args.config)  # Load config from file
     
@@ -107,33 +113,33 @@ def run_azure_load_tests(args):
     
     # Validate required OSDU parameters
     if not host:
-        print("❌ OSDU host URL is required (--host or config.yaml)")
+        logger.error("❌ OSDU host URL is required (--host or config.yaml)")
         sys.exit(1)
     if not partition:
-        print("❌ OSDU partition is required (--partition or config.yaml)")
+        logger.error("❌ OSDU partition is required (--partition or config.yaml)")
         sys.exit(1)
     if not osdu_adme_token:
-        print("❌ OSDU token is required (--token or config.yaml)")
+        logger.error("❌ OSDU token is required (--token or config.yaml)")
         sys.exit(1)
         
     # Validate required Azure Load Test parameters
     if not subscription_id:
-        print("❌ Azure subscription ID is required (--subscription-id or config.yaml azure_load_test.subscription_id)")
+        logger.error("❌ Azure subscription ID is required (--subscription-id or config.yaml azure_load_test.subscription_id)")
         sys.exit(1)
     if not resource_group:
-        print("❌ Azure resource group is required (--resource-group or config.yaml azure_load_test.resource_group)")
+        logger.error("❌ Azure resource group is required (--resource-group or config.yaml azure_load_test.resource_group)")
         sys.exit(1)
     if not location:
-        print("❌ Azure location is required (--location or config.yaml azure_load_test.location)")
+        logger.error("❌ Azure location is required (--location or config.yaml azure_load_test.location)")
         sys.exit(1)
     
-    print(f"🌐 OSDU Host: {host}")
-    print(f"📂 Partition: {partition}")
+    logger.info(f"🌐 OSDU Host: {host}")
+    logger.info(f"📂 Partition: {partition}")
     if app_id:
-        print(f"🆔 App ID: {app_id}")
-    print(f"📦 SKU: {sku}")
-    print(f"🔢 Version: {version}")
-    print(f"🆔 Test Run ID: {test_run_id}")
+        logger.info(f"🆔 App ID: {app_id}")
+    logger.info(f"📦 SKU: {sku}")
+    logger.info(f"🔢 Version: {version}")
+    logger.info(f"🆔 Test Run ID: {test_run_id}")
     
     # Generate timestamp for unique naming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -152,12 +158,12 @@ def run_azure_load_tests(args):
     # Use the provided load test resource name (default: "osdu-perf-dev")
     loadtest_name = args.loadtest_name
     
-    print(f"🏗️  Azure Subscription: {subscription_id}")
-    print(f"🏗️  Resource Group: {resource_group}")
-    print(f"🏗️  Location: {location}")
-    print(f"🏗️  Load Test Resource: {loadtest_name}")
-    print(f"🧪 Test Name: {test_name}")
-    print("")
+    logger.info(f"🏗️  Azure Subscription: {subscription_id}")
+    logger.info(f"🏗️  Resource Group: {resource_group}")
+    logger.info(f"🏗️  Location: {location}")
+    logger.info(f"🏗️  Load Test Resource: {loadtest_name}")
+    logger.info(f"🧪 Test Name: {test_name}")
+    logger.info("")
     
     # Create AzureLoadTestRunner instance
     runner = AzureLoadTestRunner(
@@ -178,19 +184,19 @@ def run_azure_load_tests(args):
     )
     
     # Create the load test resource
-    print("[run_azure_load_tests] Creating Azure Load Test resource...")
+    logger.info("Creating Azure Load Test resource...")
     try:
         load_test = runner.create_load_test_resource()
     except Exception as e:
-        print(f"[run_azure_load_tests] STEP 1 Failed to create Azure Load Test resource: {e}")
+        logger.error(f"❌ STEP 1 Failed to create Azure Load Test resource: {e}")
         sys.exit(1)
 
     if not load_test:
-        print("[run_azure_load_tests] STEP 1 Failed to create Azure Load Test resource")
+        logger.error("❌ STEP 1 Failed to create Azure Load Test resource")
         sys.exit(1)
 
-    print("[run_azure_load_tests] STEP 1 Azure Load Test resource created successfully!")
-    print("")
+    logger.info("✅ STEP 1 Azure Load Test resource created successfully!")
+    logger.info("")
     
     # Get test directory from args
     test_directory = getattr(args, 'directory', './perf_tests')
@@ -198,7 +204,7 @@ def run_azure_load_tests(args):
     
     
     # Setup test files (find, copy, upload) using the runner with OSDU parameters
-    print("[run_azure_load_tests] STEP 2 creating tests and uploading test files to azure load test resource...")
+    logger.info("STEP 2 creating tests and uploading test files to azure load test resource...")
     try:
         setup_success = runner.create_tests_and_upload_test_files(
             test_name=test_name,
@@ -213,11 +219,11 @@ def run_azure_load_tests(args):
             engine_instances=engine_instances
         )
         if setup_success:
-            print("[run_azure_load_tests] STEP 2 create tests and upload test files completed successfully!")
+            logger.info("✅ STEP 2 create tests and upload test files completed successfully!")
             
             
             # Setup OSDU entitlements for the load test
-            print("Setting up OSDU entitlements for load test...")
+            logger.info("Setting up OSDU entitlements for load test...")
             try:
                 entitlement_success = runner.setup_load_test_entitlements(
                     load_test_name=loadtest_name,
@@ -226,13 +232,13 @@ def run_azure_load_tests(args):
                     osdu_adme_token=osdu_adme_token
                 )
                 if entitlement_success:
-                    print("✅ OSDU entitlements setup completed successfully!")
+                    logger.info("✅ OSDU entitlements setup completed successfully!")
                 else:
-                    print("⚠️ Warning: OSDU entitlements setup completed with some issues")
-                    print("📝 Check logs above for details. You may need to setup some entitlements manually")
+                    logger.warning("⚠️ OSDU entitlements setup completed with some issues")
+                    logger.warning("📝 Check logs above for details. You may need to setup some entitlements manually")
             except Exception as e:
-                print(f"⚠️ Warning: Failed to setup OSDU entitlements: {e}")
-                print("📝 You may need to setup entitlements manually")
+                logger.warning(f"⚠️ Failed to setup OSDU entitlements: {e}")
+                logger.warning("📝 You may need to setup entitlements manually")
             
             execution_result = runner.run_test(
                     test_name=test_name,
@@ -240,11 +246,11 @@ def run_azure_load_tests(args):
             )
                 
             import time
-            print("[run_azure_load_tests] STEP 4 Waiting 360 seconds for Azure Load Test to initialize...")
+            logger.info("STEP 4 Waiting 360 seconds for Azure Load Test to initialize...")
             time.sleep(360)
 
             # Trigger the load test execution
-            print("[run_azure_load_tests] STEP 4 Starting load test execution...")
+            logger.info("STEP 4 Starting load test execution...")
             try:
                 execution_result = runner.run_test(
                     test_name=test_name,
@@ -254,28 +260,28 @@ def run_azure_load_tests(args):
                 
                 if execution_result:
                     execution_id = execution_result.get('testRunId', execution_result.get('name', execution_result.get('id', 'unknown')))
-                    print(f"[run_azure_load_tests] STEP 4 Load test execution started successfully!")
-                    print(f"[run_azure_load_tests]  Execution ID: {execution_id}")
-                    print(f"[run_azure_load_tests]  Display Name: {execution_display_name} (length: {len(execution_display_name)})")
-                    print(f"[run_azure_load_tests]  Monitor progress in Azure Portal:")
-                    print(f"[run_azure_load_tests]  https://portal.azure.com/#@microsoft.onmicrosoft.com/resource/subscriptions/{args.subscription_id}/resourceGroups/{args.resource_group}/providers/Microsoft.LoadTestService/loadtests/{loadtest_name}/overview")
+                    logger.info(f"✅ STEP 4 Load test execution started successfully!")
+                    logger.info(f"  Execution ID: {execution_id}")
+                    logger.info(f"  Display Name: {execution_display_name} (length: {len(execution_display_name)})")
+                    logger.info(f"  Monitor progress in Azure Portal:")
+                    logger.info(f"  https://portal.azure.com/#@microsoft.onmicrosoft.com/resource/subscriptions/{args.subscription_id}/resourceGroups/{args.resource_group}/providers/Microsoft.LoadTestService/loadtests/{loadtest_name}/overview")
                 else:
-                    print("[run_azure_load_tests] STEP 4 Failed to start load test execution")
-                    print("[run_azure_load_tests] STEP 4 Check Azure Load Testing resource in portal for manual execution")
+                    logger.error("❌ STEP 4 Failed to start load test execution")
+                    logger.error("❌ STEP 4 Check Azure Load Testing resource in portal for manual execution")
             except Exception as e:
-                print(f"[run_azure_load_tests] STEP 4 Warning: Failed to start load test execution: {e}")
-                print(f"[run_azure_load_tests] STEP 4 You can manually start the test from Azure Portal")
+                logger.warning(f"STEP 4 Failed to start load test execution: {e}")
+                logger.warning(f"STEP 4 You can manually start the test from Azure Portal")
 
-            print("")
-            print("[run_azure_load_tests] Azure Load Test Setup Complete!")
-            print("=" * 60)
+            logger.info("")
+            logger.info("✅ Azure Load Test Setup Complete!")
+            logger.info("=" * 60)
         else:
-            print("")
-            print("[run_azure_load_tests] Azure Load Test Setup partially completed with issues")
-            print("=" * 60)
+            logger.info("")
+            logger.error("❌ Azure Load Test Setup partially completed with issues")
+            logger.info("=" * 60)
             sys.exit(1)
     except Exception as e:
-        print(f"[run_azure_load_tests] Warning: Failed to create and execute azure load tests: {e}")
+        logger.error(f"❌ Failed to create and execute azure load tests: {e}")
         sys.exit(1)
 
 def apply_gevent_patch():
@@ -293,7 +299,7 @@ def main():
     import os
     os.environ['GEVENT_SUPPORT'] = 'False'
     os.environ['NO_GEVENT_MONKEY_PATCH'] = '1'
-    print(f"[cli] disable gevent monkey patch: {os.environ['NO_GEVENT_MONKEY_PATCH']}")
+    logger.debug(f"disable gevent monkey patch: {os.environ['NO_GEVENT_MONKEY_PATCH']}")
 
 # Only apply monkey patching for local tests
 
@@ -322,14 +328,14 @@ def main():
                 #finally:
                 #warnings.resetwarnings()
             else:
-                print("Available run commands: local, azure_load_test")
+                logger.error("❌ Available run commands: local, azure_load_test")
                 return
         elif args.command == 'version':
             version_command()
         else:
             parser.print_help()
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"❌ Error: {e}")
         sys.exit(1)
 
 
@@ -340,10 +346,10 @@ def create_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  osdu-perf init storage              # Initialize tests for storage service
-  osdu-perf init search --force       # Force overwrite existing files
-  osdu-perf template wellbore         # Create template for wellbore service
-  osdu-perf locustfile                # Create standalone locustfile
+  osdu_perf init storage              # Initialize tests for storage service
+  osdu_perf init search --force       # Force overwrite existing files
+  osdu_perf version                   # Show version information
+  osdu_perf run local --config config.yaml  # Run local performance tests
 """
     )
     
@@ -353,15 +359,6 @@ Examples:
     init_parser = subparsers.add_parser('init', help='Initialize a new performance testing project')
     init_parser.add_argument('service_name', help='Name of the OSDU service to test (e.g., storage, search)')
     init_parser.add_argument('--force', action='store_true', help='Force overwrite existing files')
-    
-    # Template command (legacy)
-    template_parser = subparsers.add_parser('template', help='Create a service template (legacy)')
-    template_parser.add_argument('service_name', help='Name of the service')
-    template_parser.add_argument('--output', '-o', default='.', help='Output directory')
-    
-    # Locustfile command
-    locust_parser = subparsers.add_parser('locustfile', help='Create a standalone locustfile')
-    locust_parser.add_argument('--output', '-o', default='locustfile.py', help='Output file path')
     
     # Version command
     version_parser = subparsers.add_parser('version', help='Show version information')

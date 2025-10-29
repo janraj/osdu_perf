@@ -297,7 +297,7 @@ Based on detected services, Azure resources are automatically named:
 
 ### Simple API-Based Approach
 
-The framework now uses a simple API-based approach where you make HTTP calls directly in your `locustfile.py`:
+The framework generate your `locustfile.py`:
 
 ```python
 """
