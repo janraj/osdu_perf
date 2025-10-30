@@ -148,6 +148,7 @@ def run_azure_load_tests(args):
     test_name = getattr(args, 'test_name', None)
     test_name = input_handler.get_test_name_prefix()
     test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
+    tags = input_handler.get_test_scenario()
 
     if not test_name:
         test_name = test_run_id  # Use the generated test run ID as the test name
@@ -163,7 +164,7 @@ def run_azure_load_tests(args):
     logger.info(f"🏗️  Location: {location}")
     logger.info(f"🏗️  Load Test Resource: {loadtest_name}")
     logger.info(f"🧪 Test Name: {test_name}")
-    logger.info("")
+    logger.info(f"     Test Scenario tags: {tags}")
     
     # Create AzureLoadTestRunner instance
     runner = AzureLoadTestRunner(
@@ -216,7 +217,8 @@ def run_azure_load_tests(args):
             users=users,
             spawn_rate=spawn_rate,
             run_time=run_time,
-            engine_instances=engine_instances
+            engine_instances=engine_instances,
+            tags = tags
         )
         if setup_success:
             logger.info("✅ STEP 2 create tests and upload test files completed successfully!")

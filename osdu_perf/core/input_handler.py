@@ -552,3 +552,20 @@ class InputHandler:
         timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
         max_base_length = max_length - len(f"{timestamp}")
         return f"{test_name[:max_base_length]}-{timestamp}"
+
+    def get_test_scenario(self, cli_override: Optional[str] = None) -> str:
+        """
+        Get test scenario from config.yaml or CLI override.
+        
+        Args:
+            cli_override: Optional CLI argument value to override config
+            
+        Returns:
+            Test scenario value (defaults to "storage1" if not configured)
+        """
+        if cli_override:
+            return cli_override
+
+        test_settings = self.get_test_settings()
+        return test_settings.get('test_scenario', '')
+     

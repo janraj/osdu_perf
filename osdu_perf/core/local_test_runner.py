@@ -98,6 +98,7 @@ class LocalTestRunner:
             partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
             app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
             token = input_handler.get_osdu_token(getattr(args, 'token', None))
+            test_scenario = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
             
             # Generate test run ID using configured prefix
             from datetime import datetime
@@ -111,6 +112,7 @@ class LocalTestRunner:
             env['PARTITION'] = partition
             env['APPID'] = app_id
             env['TEST_RUN_ID'] = test_run_id
+            env['TEST_SCENARIO'] = test_scenario
             
             # Add token if available
             if token:
@@ -253,7 +255,7 @@ class OSDUUser(PerformanceUser):
         
         return str(locustfile_path)
 
-    def build_locust_command(self, args, locustfile_path: str, users, spawn_rate, run_time) -> List[str]:
+    def build_locust_command(self, args, locustfile_path: str, users, spawn_rate, run_time, tags) -> List[str]:
         """
         Build the Locust command with all required parameters.
         
@@ -277,6 +279,7 @@ class OSDUUser(PerformanceUser):
             "--users", str(users),
             "--spawn-rate", str(spawn_rate),
             "--run-time", str(run_time),
+            "--tags", tags,
         ]
         
         # Add headless/web-ui options
@@ -381,6 +384,7 @@ class OSDUUser(PerformanceUser):
             spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))    
             run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
             
+            tags = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
 
             # Generate test run ID using configured prefix
             
@@ -388,7 +392,7 @@ class OSDUUser(PerformanceUser):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             test_run_id = f"{test_run_id_prefix}_{timestamp}"
             
-            print(f"[run_local_tests] Generated Test Run ID: {test_run_id}")
+            print(f"[run_local_tests] Generated Test Run ID: {test_run_id} and tags {tags}")
             
             # Store resolved values for command building
             self.resolved_config = {
@@ -406,7 +410,7 @@ class OSDUUser(PerformanceUser):
             locustfile_path = self.prepare_locustfile(args)
             
             # Build Locust command using resolved values
-            locust_cmd = self.build_locust_command(args, locustfile_path, users, spawn_rate, run_time)
+            locust_cmd = self.build_locust_command(args, locustfile_path, users, spawn_rate, run_time, tags)
 
             print(f"[run_local_tests] Built locust command: {' '.join(locust_cmd)}")
             

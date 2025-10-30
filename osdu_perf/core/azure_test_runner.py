@@ -318,7 +318,7 @@ class AzureLoadTestRunner:
                    users: int = 10,
                    spawn_rate: int = 2,
                    run_time: str = "60s",
-                   engine_instances: int = 1) -> Optional[Dict[str, Any]]:
+                   engine_instances: int = 1, tags: str = "") -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -381,6 +381,7 @@ class AzureLoadTestRunner:
             environment_variables["OSDU_ENV"] = "performance_test"
             environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
             environment_variables["TEST_RUN_ID_NAME"] = self.test_runid_name
+            environment_variables["LOCUST_TAGS"] = tags 
             
             body = {
                 "displayName": display_name,
@@ -571,7 +572,8 @@ class AzureLoadTestRunner:
                         users: int = 10,
                         spawn_rate: int = 2,
                         run_time: str = "60s",
-                        engine_instances: int = 1) -> bool:
+                        engine_instances: int = 1,
+                        tags: str = "") -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         
@@ -686,6 +688,7 @@ class AzureLoadTestRunner:
             self.logger.info(f"   Spawn Rate: {spawn_rate}/sec")
             self.logger.info(f"   Run Time: {run_time}")
             self.logger.info(f"   Engine Instances: {engine_instances}")
+            self.logger.info("    Test Scenario tags: {tags}")
             data_plane_token = self.get_data_plane_token()
             test_result = self.create_test(
                 test_name=test_name, 
@@ -697,7 +700,8 @@ class AzureLoadTestRunner:
                 users=users,
                 spawn_rate=spawn_rate,
                 run_time=run_time,
-                engine_instances=engine_instances
+                engine_instances=engine_instances,
+                tags=tags
             )
             if not test_result:
                 self.logger.error("Failed to create test in Azure Load Test resource")
@@ -1215,7 +1219,7 @@ def main():
         demo_logger.error("3. Verify subscription: az account show")
         demo_logger.error("4. Check permissions for creating resources")
 
-    runner.create_tests_and_upload_test_files("demo_test", test_directory="./perf_tests", host="https://your-osdu-host.com", partition="opendes", app_id="your-app-id")
+    runner.create_tests_and_upload_test_files("demo_test", test_directory="./perf_tests", host="https://your-osdu-host.com", partition="opendes", app_id="your-app-id", tags="smoke")
 
 if __name__ == "__main__":
     main()

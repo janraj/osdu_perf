@@ -234,6 +234,8 @@ class PerformanceUser(HttpUser):
             logger.info(f"Using Test Run ID : {test_run_id}")
                 
             current_timestamp = datetime.utcnow()
+
+            test_scenario = input_handler.get_test_scenario(os.getenv("LOCUST_TAGS", None) )
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
@@ -302,7 +304,8 @@ class PerformanceUser(HttpUser):
                     "LastRequestTimestamp": end_time,
                     "Timestamp": current_timestamp.isoformat(),
                     "TestRunId": test_run_id,
-                    "Throughput": throughput
+                    "Throughput": throughput,
+                    "TestScenario": test_scenario
                 })
             
             # 2. PREPARE EXCEPTIONS DATA
@@ -324,7 +327,8 @@ class PerformanceUser(HttpUser):
                     "Traceback": str(getattr(error_entry, 'traceback', '')),
                     "ErrorMessage": str(getattr(error_entry, 'msg', '')),
                     "Service": PerformanceUser.get_service_name(name),
-                    "Timestamp": current_timestamp.isoformat()
+                    "Timestamp": current_timestamp.isoformat(),
+                    "TestScenario": test_scenario
                 })
             
             # 3. PREPARE SUMMARY DATA
@@ -363,7 +367,8 @@ class PerformanceUser(HttpUser):
                 "TestDurationSeconds": float(test_duration),
                 "AverageRPS": float(average_rps),
                 "Timestamp": current_timestamp.isoformat(),
-                "Throughput": throughput
+                "Throughput": throughput,
+                "TestScenario": test_scenario
             }]
             
             # CREATE INGESTION PROPERTIES
@@ -406,7 +411,7 @@ class PerformanceUser(HttpUser):
                                "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
                                "CurrentFailPerSec", "AverageRPS", "RequestsPerSec", "FailuresPerSec", 
                                "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
-                               "Timestamp", "TestRunId", "Throughput"]
+                               "Timestamp", "TestRunId", "Throughput", "TestScenario"]
                 stats_csv = create_csv_string(stats_results, stats_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(stats_csv), 
@@ -416,7 +421,7 @@ class PerformanceUser(HttpUser):
 
             if exceptions_results:
                 exceptions_headers = ["TestEnv", "TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
-                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp"]
+                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp", "TestScenario"]
                 exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(exceptions_csv), 
@@ -431,7 +436,7 @@ class PerformanceUser(HttpUser):
                                  "ResponseTime80th", "ResponseTime90th", "ResponseTime95th", "ResponseTime98th", 
                                  "ResponseTime99th", "ResponseTime999th", "CurrentRPS", "CurrentFailPerSec", 
                                  "RequestsPerSec", "FailuresPerSec", "FailRatio", "TotalContentLength", 
-                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput"]
+                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput", "TestScenario"]
                 summary_csv = create_csv_string(summary_results, summary_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(summary_csv), 
