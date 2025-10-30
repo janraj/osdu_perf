@@ -38,11 +38,6 @@ osdu_environment:
   sku: "Standard"
   version: "25.2.35"
   
-  # Authentication (optional - uses automatic token generation if not provided)
-  auth:
-    # Manual token override (optional)
-    token: ""
-
 # Metrics Collection Configuration  
 metrics_collector:
   # Kusto (Azure Data Explorer) Configuration

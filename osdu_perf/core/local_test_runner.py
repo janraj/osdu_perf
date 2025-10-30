@@ -6,13 +6,48 @@ using Locust with proper OSDU authentication and configuration.
 """
 
 import os
-import sys
 import subprocess
-import tempfile
-from pathlib import Path
-from typing import List, Optional, Dict
-from .input_handler import InputHandler
 from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, List, Tuple
+from dataclasses import dataclass
+
+from .input_handler import InputHandler
+from ..utils.logger import get_logger
+
+
+@dataclass
+class TestConfiguration:
+    """
+    Data class representing the complete test configuration.
+    
+    This encapsulates all the resolved parameters needed for test execution,
+    including OSDU settings, test parameters, and generated identifiers.
+    """
+    host: str
+    partition: str
+    app_id: str
+    token: Optional[str]
+    test_run_id: str
+    users: int
+    spawn_rate: int
+    run_time: str
+    tags: str
+    
+    def to_env_dict(self) -> Dict[str, str]:
+        """Convert configuration to environment variables dictionary."""
+        env = {
+            'HOST': self.host,
+            'PARTITION': self.partition,
+            'APPID': self.app_id,
+            'TEST_RUN_ID': self.test_run_id,
+            'TEST_SCENARIO': self.tags
+        }
+        
+        if self.token:
+            env['ADME_BEARER_TOKEN'] = self.token
+            
+        return env
 
 
 class LocalTestRunner:
@@ -22,13 +57,37 @@ class LocalTestRunner:
     This class encapsulates all the logic for:
     - Validating OSDU parameters
     - Setting up environment variables
-    - Creating temporary locustfiles from templates
     - Executing Locust commands with proper configuration
     """
     
-    def __init__(self):
-        """Initialize the LocalTestRunner."""
-        self.temp_files_created = []
+    def __init__(self, logger=None):
+        """
+        Initialize the LocalTestRunner.
+        
+        Args:
+            logger: Optional logger instance. If not provided, creates a default logger.
+        """
+        self.logger = logger or get_logger('local_test_runner')
+        self._input_handler: Optional[InputHandler] = None
+        self._test_config: Optional[TestConfiguration] = None
+
+    def _get_input_handler(self, config_file: str) -> InputHandler:
+        """Get or create InputHandler instance with configuration loaded."""
+        if self._input_handler is None:
+            self._input_handler = InputHandler(None)
+            self._input_handler.load_from_config_file(config_file)
+        return self._input_handler
+
+    def _extract_osdu_parameters(self, args) -> Tuple[str, str, str, Optional[str]]:
+        """Extract and validate OSDU parameters from config and CLI args."""
+        input_handler = self._get_input_handler(args.config)
+        
+        host = input_handler.get_osdu_host(getattr(args, 'host', None))
+        partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
+        app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
+        token = input_handler.get_osdu_token(getattr(args, 'token', None))
+        
+        return host, partition, app_id, token
     
     def validate_osdu_parameters(self, args) -> bool:
         """
@@ -41,41 +100,36 @@ class LocalTestRunner:
             True if all required parameters are present, False otherwise
         """
         try:
-            # Load configuration from the specified config file
-            input_handler = InputHandler(None)  # Temporary instance for config loading
-            input_handler.load_from_config_file(args.config)
+            host, partition, app_id, token = self._extract_osdu_parameters(args)
             
-            # Try to get required parameters with CLI overrides
-            try:
-                host = input_handler.get_osdu_host(getattr(args, 'host', None))
-                partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
-                app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
-                # Token is optional - can be provided via config, CLI, or environment
-                token = input_handler.get_osdu_token(getattr(args, 'token', None))
-                
-                print(f"✅ OSDU Configuration validated:")
-                print(f"   Host: {host}")
-                print(f"   Partition: {partition}")
-                print(f"   App ID: {app_id}")
-                print(f"   Token: {'✓ Configured' if token else '❌ Not configured'}")
-                
-                return True
-                
-            except ValueError as ve:
-                print(f"❌ OSDU Configuration Error: {ve}")
-                print("💡 Make sure config.yaml contains required osdu_environment settings or provide CLI overrides:")
-                print("   --host <OSDU_HOST_URL>")
-                print("   --partition <PARTITION_ID>") 
-                print("   --app-id <APPLICATION_ID>")
-                print("   --token <BEARER_TOKEN>")
+            # Validate that token is provided (now mandatory)
+            if not token:
+                self.logger.error("❌ OSDU Authentication Token is required but not provided")
+                self.logger.info("💡 Use --token to provide the Bearer token for OSDU authentication")
                 return False
+            
+            self.logger.info("✅ OSDU Configuration validated:")
+            self.logger.info(f"   Host: {host}")
+            self.logger.info(f"   Partition: {partition}")
+            self.logger.info(f"   App ID: {app_id}")
+            self.logger.info(f"   Token: ✓ Configured")
+            
+            return True
                 
+        except ValueError as ve:
+            self.logger.error(f"❌ OSDU Configuration Error: {ve}")
+            self.logger.info("💡 Make sure config.yaml contains required osdu_environment settings or provide CLI overrides:")
+            self.logger.info("   --host <OSDU_HOST_URL>")
+            self.logger.info("   --partition <PARTITION_ID>") 
+            self.logger.info("   --app-id <APPLICATION_ID>")
+            self.logger.info("   --token <BEARER_TOKEN>")
+            return False
         except FileNotFoundError:
-            print(f"❌ Config file not found: {args.config}")
-            print("💡 Make sure the config file exists or run 'osdu-perf init <service>' to create a project structure")
+            self.logger.error(f"❌ Config file not found: {args.config}")
+            self.logger.info("💡 Make sure the config file exists or run 'osdu-perf init <service>' to create a project structure")
             return False
         except Exception as e:
-            print(f"❌ Error loading config file: {e}")
+            self.logger.error(f"❌ Error loading config file: {e}")
             return False
     
     def setup_environment_variables(self, args) -> Dict[str, str]:
@@ -89,141 +143,27 @@ class LocalTestRunner:
             Dictionary of environment variables
         """
         try:
-            # Load configuration
-            input_handler = InputHandler(None)
-            input_handler.load_from_config_file(args.config)
+            # Load the test configuration if not already loaded
+            if self._test_config is None:
+                self._test_config = self._load_test_configuration(args)
             
-            # Get parameters with CLI overrides
-            host = input_handler.get_osdu_host(getattr(args, 'host', None))
-            partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
-            app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
-            token = input_handler.get_osdu_token(getattr(args, 'token', None))
-            test_scenario = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
-            
-            # Generate test run ID using configured prefix
-            from datetime import datetime
-            test_run_id_prefix = input_handler.get_test_run_id_prefix()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            test_run_id = f"{test_run_id_prefix}_{timestamp}"
-            
-            # Prepare environment variables
+            # Generate base environment from current environment
             env = os.environ.copy()
-            env['HOST'] = host
-            env['PARTITION'] = partition
-            env['APPID'] = app_id
-            env['TEST_RUN_ID'] = test_run_id
-            env['TEST_SCENARIO'] = test_scenario
-            
-            # Add token if available
-            if token:
-                env['ADME_BEARER_TOKEN'] = token
-            else:
-                print("⚠️  No authentication token configured - tests may fail if token is required")
+            env.update(self._test_config.to_env_dict())
             
             return env
             
         except Exception as e:
-            print(f"❌ Error setting up environment variables: {e}")
+            self.logger.error(f"❌ Error setting up environment variables: {e}")
             raise
     
     def list_available_locustfiles(self):
         """List available bundled locustfiles."""
-        print("📋 Available bundled locustfiles:")
-        print("  • Default comprehensive locustfile (includes all OSDU services)")
-        print("  • Use --locustfile option to specify a custom file")
-    
-    def create_locustfile_template(self, output_path: str, service_names: Optional[List[str]] = None) -> None:
-        """
-        Create a locustfile.py template with the framework.
-        
-        Args:
-            output_path: Path where to create the locustfile.py
-            service_names: Optional list of service names to include in template
-        """
-        service_list = service_names or ["example"]
-        services_comment = f"# This will auto-discover and run: perf_{service_list[0]}_test.py" if service_names else "# This will auto-discover and run all perf_*_test.py files"
-        
-        template = f'''"""
-OSDU Performance Tests - Locust Configuration
-Generated by OSDU Performance Testing Framework
-
-{services_comment}
-"""
-
-import os
-from locust import events
-from osdu_perf import PerformanceUser
+        self.logger.info("📋 Available bundled locustfiles:")
+        self.logger.info("  • Default comprehensive locustfile (includes all OSDU services)")
+        self.logger.info("  • Use --locustfile option to specify a custom file")
 
 
-# STEP 1: Register custom CLI args with Locust
-@events.init_command_line_parser.add_listener
-def add_custom_args(parser):
-    """Add OSDU-specific command line arguments"""
-    parser.add_argument("--partition", type=str, default=os.getenv("PARTITION"), help="OSDU Data Partition ID")
-    # Note: --host is provided by Locust built-in, no need to add it here
-    # Note: --token is not exposed as CLI arg for security, only via environment variable
-    parser.add_argument("--appid", type=str, default=os.getenv("APPID"), help="Azure AD Application ID")
-
-
-class OSDUUser(PerformanceUser):
-    """
-    OSDU Performance Test User
-    
-    This class automatically:
-    - Discovers all perf_*_test.py files in the current directory
-    - Handles Azure authentication using --appid
-    - Orchestrates test execution with proper headers and context
-    - Manages Locust user simulation and load testing
-    
-    Usage:
-        locust -f locustfile.py --host https://your-api.com --partition your-partition --appid your-app-id
-    """
-    
-    # Optional: Customize user behavior
-    # Default `wait_time` is provided by `PerformanceUser` (between(1, 3)).
-    # To override in the generated file, uncomment and import `between` from locust:
-    # from locust import between
-    # wait_time = between(1, 3)  # realistic pacing (recommended)
-    # wait_time = between(0, 0)  # no wait (maximum load)
-    
-    def on_start(self):
-        """Called when a user starts - performs setup"""
-        super().on_start()
-        
-        # Access OSDU parameters from Locust parsed options or environment variables
-        partition = getattr(self.environment.parsed_options, 'partition', None) or os.getenv('PARTITION')
-        host = getattr(self.environment.parsed_options, 'host', None) or self.host or os.getenv('HOST')
-        token = os.getenv('ADME_BEARER_TOKEN')  # Token only from environment for security
-        appid = getattr(self.environment.parsed_options, 'appid', None) or os.getenv('APPID')
-        
-        print(f"🚀 Started performance testing user")
-        print(f"   📍 Partition: {{partition}}")
-        print(f"   🌐 Host: {{host}}")
-        print(f"   🔑 Token: {{'***' if token else 'Not provided'}}")
-        print(f"   🆔 App ID: {{appid or 'Not provided'}}")
-    
-    def on_stop(self):
-        """Called when a user stops - performs cleanup"""
-        print("🛑 Stopped performance testing user")
-
-
-# Optional: Add custom tasks here if needed
-# from locust import task
-# 
-# class CustomOSDUUser(OSDUUser):
-#     @task(weight=1)
-#     def custom_task(self):
-#         """Custom task example"""
-#         # Your custom test logic here
-#         pass
-'''
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(template)
-
-        print(f"✅ Created locustfile.py at {output_path}")
-        self.temp_files_created.append(output_path)
-    
     def prepare_locustfile(self, args) -> str:
         """
         Prepare the locustfile for execution.
@@ -233,53 +173,54 @@ class OSDUUser(PerformanceUser):
             
         Returns:
             Path to the locustfile to use
+
+        Raises:
+            FileNotFoundError: If no locustfile is found
         """
         # Check if custom locustfile is specified and exists
         if hasattr(args, 'locustfile') and args.locustfile and Path(args.locustfile).exists():
-            print(f"🎯 Using custom locustfile: {args.locustfile}")
+            self.logger.info(f"🎯 Using custom locustfile: {args.locustfile}")
             return args.locustfile
         
+        # Check if custom locustfile is specified but doesn't exist
+        if hasattr(args, 'locustfile') and args.locustfile:
+            raise FileNotFoundError(f"❌ Custom locustfile specified but not found: {args.locustfile}")
+
+
         # Check if locustfile.py exists in current directory (created during init)
         current_dir_locustfile = Path("locustfile.py")
         if current_dir_locustfile.exists():
-            print(f"[prepare_locustfile] Using existing locustfile from current directory: {current_dir_locustfile}")
+            self.logger.info(f"✅ Using locustfile from current directory: {current_dir_locustfile}")
             return str(current_dir_locustfile)
         
-        # Create a temporary locustfile using our template
-        temp_dir = tempfile.mkdtemp()
-        locustfile_path = Path(temp_dir) / "locustfile.py"
-        
-        print("📝 Creating temporary locustfile from bundled template...")
-        self.create_locustfile_template(str(locustfile_path))
-        print(f"✅ Temporary locustfile created at: {locustfile_path}")
-        
-        return str(locustfile_path)
+        # No locustfile found - throw error instead of creating temporary one
+        raise FileNotFoundError(
+            "❌ No locustfile.py found in current directory.\n"
+            "💡 Run 'osdu-perf init <service>' to create a project structure with locustfile.py\n"
+            "   or use --locustfile to specify a custom locustfile path."
+        )
 
-    def build_locust_command(self, args, locustfile_path: str, users, spawn_rate, run_time, tags) -> List[str]:
+
+    def build_locust_command(self, args, locustfile_path: str, test_config: TestConfiguration) -> List[str]:
         """
         Build the Locust command with all required parameters.
         
         Args:
             args: Argument namespace containing test parameters
             locustfile_path: Path to the locustfile to use
+            test_config: Resolved test configuration
             
         Returns:
             List of command arguments for subprocess
         """
-        # Use resolved host from config if available, otherwise fall back to args.host
-        host = getattr(self, 'resolved_config', {}).get('host') or getattr(args, 'host', None)
-        
-        if not host:
-            raise ValueError("Host must be configured in config.yaml or provided via --host argument")
-        
         locust_cmd = [
             "locust",
             "-f", locustfile_path,
-            "--host", host,
-            "--users", str(users),
-            "--spawn-rate", str(spawn_rate),
-            "--run-time", str(run_time),
-            "--tags", tags,
+            "--host", test_config.host,
+            "--users", str(test_config.users),
+            "--spawn-rate", str(test_config.spawn_rate),
+            "--run-time", str(test_config.run_time),
+            "--tags", test_config.tags,
         ]
         
         # Add headless/web-ui options
@@ -288,29 +229,91 @@ class OSDUUser(PerformanceUser):
             locust_cmd.append("--headless")
         
         return locust_cmd
+
+    def _load_test_configuration(self, args) -> TestConfiguration:
+        """Load and resolve test configuration parameters into a data class."""
+        input_handler = self._get_input_handler(args.config)
+        
+        # Get resolved parameters with CLI overrides
+        host, partition, app_id, token = self._extract_osdu_parameters(args)
+        
+        users = input_handler.get_users(getattr(args, 'users', None))
+        spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
+        run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
+        tags = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
+        
+        # Generate test run ID using configured prefix
+        test_run_id_prefix = input_handler.get_test_run_id_prefix()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        test_run_id = f"{test_run_id_prefix}_{timestamp}"
+        
+        self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {tags}")
+        
+        # Create and return the configuration data class
+        config = TestConfiguration(
+            host=host,
+            partition=partition,
+            app_id=app_id,
+            token=token,
+            test_run_id=test_run_id,
+            users=users,
+            spawn_rate=spawn_rate,
+            run_time=run_time,
+            tags=tags
+        )
+        
+        return config
+
+    def _execute_test_workflow(self, args, test_config: TestConfiguration) -> int:
+        """Execute the complete test workflow."""
+        try:
+            # Set up environment variables
+            env = self.setup_environment_variables(args)
+            
+            # Prepare locustfile
+            locustfile_path = self.prepare_locustfile(args)
+            
+            # Build Locust command using resolved configuration
+            locust_cmd = self.build_locust_command(args, locustfile_path, test_config)
+
+            self.logger.info(f"Built locust command: {' '.join(locust_cmd)}")
+            
+            # Print test information
+            is_web_ui = not (hasattr(args, 'headless') and args.headless)
+            self.print_test_info(args, test_config, is_web_ui)
+            
+            # Execute the command
+            exit_code = self.execute_locust_command(locust_cmd, env)
+            
+            # Print results
+            if exit_code == 0:
+                self.logger.info("Performance test completed successfully!")
+            else:
+                self.logger.error(f"Performance test failed with exit code: {exit_code}")
+
+            return exit_code
+        except FileNotFoundError as e:
+            self.logger.error(str(e))
+            return 1
     
-    def print_test_info(self, args, is_web_ui: bool = False):
+    def print_test_info(self, args, test_config: TestConfiguration, is_web_ui: bool = False):
         """
         Print test configuration information.
         
         Args:
             args: Argument namespace containing test parameters
+            test_config: Resolved test configuration
             is_web_ui: Whether running in web UI mode
         """
         if is_web_ui:
-            print("🌐 Starting Locust with Web UI...")
-            print(f"📊 Open http://localhost:8089 to access the web interface")
+            self.logger.info("🌐 Starting Locust with Web UI...")
+            self.logger.info("📊 Open http://localhost:8089 to access the web interface")
         else:
-            print("🚀 Starting headless performance test...")
+            self.logger.info("🚀 Starting headless performance test...")
         
-        # Use resolved config values if available
-        resolved_config = getattr(self, 'resolved_config', {})
-        host = resolved_config.get('host') or getattr(args, 'host', 'Not configured')
-        partition = resolved_config.get('partition') or getattr(args, 'partition', 'Not configured')
-        
-        print(f"🎯 Target Host: {host}")
-        print(f"🏷️  Data Partition: {partition}")
-        print(f"👥 Users: {args.users}, Spawn Rate: {args.spawn_rate}/s, Duration: {args.run_time}")
+        self.logger.info(f"🎯 Target Host: {test_config.host}")
+        self.logger.info(f"🏷️  Data Partition: {test_config.partition}")
+        self.logger.info(f"👥 Users: {test_config.users}, Spawn Rate: {test_config.spawn_rate}/s, Duration: {test_config.run_time}")
     
     def execute_locust_command(self, command: List[str], env: Dict[str, str]) -> int:
         """
@@ -323,35 +326,20 @@ class OSDUUser(PerformanceUser):
         Returns:
             Exit code from the subprocess
         """
-        print("⚡ Executing locust command...")
+        self.logger.info("⚡ Executing locust command...")
         try:
             result = subprocess.run(command, capture_output=False, text=True, env=env)
             return result.returncode
         except FileNotFoundError:
-            print("❌ Locust is not installed. Install it with: pip install locust")
+            self.logger.error("❌ Locust is not installed. Install it with: pip install locust")
             return 1
         except Exception as e:
-            print(f"❌ Error running locust command: {e}")
+            self.logger.error(f"❌ Error running locust command: {e}")
             return 1
-    
-    def cleanup_temp_files(self):
-        """Clean up any temporary files created during execution."""
-        for temp_file in self.temp_files_created:
-            try:
-                temp_path = Path(temp_file)
-                if temp_path.exists():
-                    temp_path.unlink()
-                    # Also try to remove the temp directory if it's empty
-                    try:
-                        temp_path.parent.rmdir()
-                    except OSError:
-                        pass  # Directory not empty, that's okay
-            except Exception:
-                pass  # Best effort cleanup
     
     def run_local_tests(self, args) -> int:
         """
-        Run local performance tests using bundled locust files.
+        Run local performance tests using existing locust files.
         
         Args:
             args: Argument namespace containing all test parameters
@@ -359,7 +347,7 @@ class OSDUUser(PerformanceUser):
         Returns:
             Exit code (0 for success, 1 for failure)
         """
-        print("[local_test_runner] Starting Local Performance Tests")
+        self.logger.info("Starting Local Performance Tests")
         try:
             # List available locustfiles if requested (do this first, no other params needed)
             if hasattr(args, 'list_locustfiles') and args.list_locustfiles:
@@ -371,69 +359,11 @@ class OSDUUser(PerformanceUser):
                 return 1
             
             # Load configuration and resolve values for command building
-            input_handler = InputHandler(None)
-            input_handler.load_from_config_file(args.config)
+            self._test_config = self._load_test_configuration(args)
             
-            # Get resolved parameters with CLI overrides
-            resolved_host = input_handler.get_osdu_host(getattr(args, 'host', None))
-            resolved_partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
-            resolved_app_id = input_handler.get_osdu_app_id(getattr(args, 'app_id', None))
-            resolved_token = input_handler.get_osdu_token(getattr(args, 'token', None))
-
-            users = input_handler.get_users(getattr(args, 'users', None))
-            spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))    
-            run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
-            
-            tags = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
-
-            # Generate test run ID using configured prefix
-            
-            test_run_id_prefix = input_handler.get_test_run_id_prefix()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            test_run_id = f"{test_run_id_prefix}_{timestamp}"
-            
-            print(f"[run_local_tests] Generated Test Run ID: {test_run_id} and tags {tags}")
-            
-            # Store resolved values for command building
-            self.resolved_config = {
-                'host': resolved_host,
-                'partition': resolved_partition,
-                'app_id': resolved_app_id,
-                'token': resolved_token,
-                'test_run_id': test_run_id
-            }
-            
-            # Set up environment variables
-            env = self.setup_environment_variables(args)
-            
-            # Prepare locustfile
-            locustfile_path = self.prepare_locustfile(args)
-            
-            # Build Locust command using resolved values
-            locust_cmd = self.build_locust_command(args, locustfile_path, users, spawn_rate, run_time, tags)
-
-            print(f"[run_local_tests] Built locust command: {' '.join(locust_cmd)}")
-            
-            # Print test information
-            # Default is web UI, headless only if explicitly requested
-            is_web_ui = not (hasattr(args, 'headless') and args.headless)
-            self.print_test_info(args, is_web_ui)
-            
-            # Execute the command
-            exit_code = self.execute_locust_command(locust_cmd, env)
-            
-            # Print results
-            if exit_code == 0:
-                print("\n[run_local_tests] Performance test completed successfully!")
-            else:
-                print(f"\n[run_local_tests] Performance test failed with exit code: {exit_code}")
-
-            return exit_code
+            # Execute the complete test workflow
+            return self._execute_test_workflow(args, self._test_config)
             
         except Exception as e:
-            print(f"[run_local_tests] Error running local tests: {e}")
+            self.logger.error(f"Error running local tests: {e}")
             return 1
-        
-        finally:
-            # Clean up temporary files
-            self.cleanup_temp_files()

@@ -399,13 +399,6 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
-        auth_config = osdu_env.get('auth', {})
-        token = auth_config.get('token')
-        
-        if token and token.strip():
-            return token.strip()
-            
         return None
     
     def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
