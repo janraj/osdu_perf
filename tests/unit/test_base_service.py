@@ -40,19 +40,16 @@ class TestBaseService:
         client.post = Mock(return_value=Mock(status_code=201))
         return client
     
-    @pytest.mark.unit
     def test_concrete_service_initialization(self, mock_client):
         """Test concrete service initialization."""
         service = self.ConcreteService(client=mock_client)
         assert service.client == mock_client
     
-    @pytest.mark.unit
     def test_concrete_service_initialization_without_client(self):
         """Test concrete service initialization without client."""
         service = self.ConcreteService()
         assert service.client is None
     
-    @pytest.mark.unit
     def test_concrete_service_execute(self, mock_client):
         """Test concrete service execute method."""
         service = self.ConcreteService(client=mock_client)
@@ -65,46 +62,39 @@ class TestBaseService:
         expected = "Executed with headers={'Authorization': 'Bearer token'}, partition=test-partition, host=https://test.com"
         assert result == expected
     
-    @pytest.mark.unit
     def test_concrete_service_provide_explicit_token(self, mock_client):
         """Test concrete service provide_explicit_token method."""
         service = self.ConcreteService(client=mock_client)
         token = service.provide_explicit_token()
         assert token == "test-token"
     
-    @pytest.mark.unit
     def test_concrete_service_prehook(self, mock_client):
         """Test concrete service prehook method."""
         service = self.ConcreteService(client=mock_client)
         result = service.prehook()
         assert result == "prehook executed"
     
-    @pytest.mark.unit
     def test_concrete_service_posthook(self, mock_client):
         """Test concrete service posthook method."""
         service = self.ConcreteService(client=mock_client)
         result = service.posthook()
         assert result == "posthook executed"
     
-    @pytest.mark.unit
     def test_base_service_is_abstract(self):
         """Test that BaseService is abstract."""
         assert issubclass(BaseService, ABC)
     
-    @pytest.mark.unit
     def test_incomplete_service_cannot_be_instantiated(self):
         """Test that incomplete service cannot be instantiated."""
         with pytest.raises(TypeError):
             self.IncompleteService()
     
-    @pytest.mark.unit
     def test_abstract_methods_exist(self):
         """Test that all expected abstract methods exist."""
         abstract_methods = BaseService.__abstractmethods__
         expected_methods = {'execute', 'provide_explicit_token', 'prehook', 'posthook'}
         assert abstract_methods == expected_methods
     
-    @pytest.mark.unit
     def test_service_with_client_operations(self, mock_client):
         """Test service operations with client."""
         service = self.ConcreteService(client=mock_client)
@@ -140,14 +130,12 @@ class TestBaseServiceInheritance:
         def posthook(self):
             pass
     
-    @pytest.mark.unit
     def test_minimal_service_inheritance(self):
         """Test minimal service inheritance."""
         service = self.MinimalService(name="test-service")
         assert isinstance(service, BaseService)
         assert service.name == "test-service"
     
-    @pytest.mark.unit
     def test_minimal_service_execute(self):
         """Test minimal service execute method."""
         service = self.MinimalService(name="test-service")
@@ -156,7 +144,6 @@ class TestBaseServiceInheritance:
         assert result["status"] == "executed"
         assert result["name"] == "test-service"
     
-    @pytest.mark.unit
     def test_minimal_service_hooks_return_none(self):
         """Test minimal service hooks return None."""
         service = self.MinimalService()

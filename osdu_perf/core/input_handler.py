@@ -561,4 +561,3 @@ class InputHandler:
 
         test_settings = self.get_test_settings()
         return test_settings.get('test_scenario', '')
-     

@@ -558,7 +558,6 @@ class OSDUUser(PerformanceUser):
         self.logger.info(f"🚀 Started performance testing user")
         self.logger.info(f"   📍 Partition: {{self.partition}}")
         self.logger.info(f"   🌐 Host: {{self.host}}")
-        self.logger.info(f"   🔑 Token: {{'***' if self.token else 'Not provided'}}")
         self.logger.info(f"   🆔 App ID: {{self.appid or 'Not provided'}}")
 
     def on_stop(self):
@@ -687,4 +686,3 @@ class OSDUUser(PerformanceUser):
         self.logger.info(f"         5. Run local tests: osdu-perf run local --config config.yaml")
         self.logger.info(f"         6. Run Azure Load Tests: osdu-perf run azure_load_test --config config.yaml ")
         self.logger.info(f"         7. Optional: Override config values with CLI arguments")
-

@@ -102,17 +102,11 @@ class LocalTestRunner:
         try:
             host, partition, app_id, token = self._extract_osdu_parameters(args)
             
-            # Validate that token is provided (now mandatory)
-            if not token:
-                self.logger.error("❌ OSDU Authentication Token is required but not provided")
-                self.logger.info("💡 Use --token to provide the Bearer token for OSDU authentication")
-                return False
-            
             self.logger.info("✅ OSDU Configuration validated:")
             self.logger.info(f"   Host: {host}")
             self.logger.info(f"   Partition: {partition}")
             self.logger.info(f"   App ID: {app_id}")
-            self.logger.info(f"   Token: ✓ Configured")
+            self.logger.info(f"   Token: {'✓ Configured' if token else '❌ Not configured'}")
             
             return True
                 
@@ -336,6 +330,72 @@ class LocalTestRunner:
         except Exception as e:
             self.logger.error(f"❌ Error running locust command: {e}")
             return 1
+        
+    def pre_execution_validation(self, args) -> bool:
+        """
+        Template step: Perform pre-execution validation.
+        
+        This can be overridden to add different validation strategies.
+        """
+        # Handle special case first
+        if hasattr(args, 'list_locustfiles') and args.list_locustfiles:
+            self.list_available_locustfiles()
+            return False  # Exit early, not an error
+        
+        return True
+    
+    def validate_test_parameters(self, args) -> bool:
+        """
+        Template step: Validate all required test parameters.
+        
+        This can be overridden for different parameter validation strategies.
+        """
+        return self.validate_osdu_parameters(args)
+
+    def prepare_test_environment(self, args) -> None:
+        """
+        Template step: Prepare the test environment.
+        
+        This can be overridden to add different preparation strategies.
+        """
+        # Load configuration (this sets self._test_config)
+        self._test_config = self._load_test_configuration(args)
+        
+        # Log preparation complete
+        self.logger.info("✅ Test environment prepared successfully")
+
+    def execute_test_suite(self, args) -> int:
+        """
+        Template step: Execute the actual test suite.
+        
+        This can be overridden for different execution strategies.
+        """
+        if self._test_config is None:
+            raise RuntimeError("Test configuration not loaded. Call prepare_test_environment first.")
+        
+        return self._execute_test_workflow(args, self._test_config)
+
+    def post_execution_cleanup(self, args, exit_code: int) -> None:
+        """
+        Template step: Perform post-execution cleanup.
+        
+        This can be overridden to add different cleanup strategies.
+        """
+        if exit_code == 0:
+            self.logger.info("🎉 Test execution completed successfully!")
+        else:
+            self.logger.warning(f"⚠️ Test execution completed with issues (exit code: {exit_code})")
+        
+        # Future: Add any cleanup logic here (temp files, connections, etc.)
+
+    def handle_execution_error(self, error: Exception) -> int:
+        """
+        Template step: Handle execution errors.
+        
+        This can be overridden for different error handling strategies.
+        """
+        self.logger.error(f"❌ Error during test execution: {error}")
+        return 1
     
     def run_local_tests(self, args) -> int:
         """
@@ -350,20 +410,19 @@ class LocalTestRunner:
         self.logger.info("Starting Local Performance Tests")
         try:
             # List available locustfiles if requested (do this first, no other params needed)
-            if hasattr(args, 'list_locustfiles') and args.list_locustfiles:
-                self.list_available_locustfiles()
-                return 0
-            
-            # Validate required OSDU parameters and get resolved values
-            if not self.validate_osdu_parameters(args):
+            if not self.pre_execution_validation(args):
                 return 1
             
-            # Load configuration and resolve values for command building
-            self._test_config = self._load_test_configuration(args)
+            if not self.validate_test_parameters(args):
+                return 1
             
-            # Execute the complete test workflow
-            return self._execute_test_workflow(args, self._test_config)
+            self.prepare_test_environment(args)
+            
+            exit_code = self.execute_test_suite(args)
+            
+            self.post_execution_cleanup(args, exit_code)
+            
+            return exit_code
             
         except Exception as e:
-            self.logger.error(f"Error running local tests: {e}")
-            return 1
+            return self.handle_execution_error(e)
