@@ -1,6 +1,8 @@
 import os
 import logging
 import yaml
+import subprocess
+import json
 from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
@@ -34,6 +36,19 @@ class InputHandler:
             self.base_url = None
             self.app_id = None
         
+        self.app_id_type = None
+        if self.app_id:
+            app_id_info = self.check_app_id_type(self.app_id)
+            if app_id_info:
+                if app_id_info['type'] == 'service_principal':
+                    self.logger.info(f"✓ App ID is a Service Principal (App Registration): {app_id_info['display_name']}")
+                    self.app_id_type = 'service_principal'
+                elif app_id_info['type'] == 'user':
+                    self.logger.warning(f"⚠ App ID is a User Principal (not recommended): {app_id_info['display_name']}")
+                    self.app_id_type = 'user'
+                else:
+                    self.logger.warning(f"⚠ Could not determine app ID type for: {self.app_id}")
+                    self.app_id_type = 'unknown'
         # Only prepare headers if we have environment data
         if environment is not None or self.is_azure_load_test_env:
             self.header = self.prepare_headers()
@@ -118,32 +133,115 @@ class InputHandler:
         self.logger.info("Detected local development environment")
         return False
     
+    def check_app_id_type(self, app_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if the given app ID is a user (User Principal) or app registration (Service Principal).
+        
+        Args:
+            app_id: Azure AD app ID (client ID or object ID) to check
+            
+        Returns:
+            Dictionary with principal type information:
+            {
+                'type': 'user' | 'service_principal' | 'unknown',
+                'display_name': str,
+                'object_id': str,
+                'details': dict  # Additional information
+            }
+            Returns None if unable to determine
+        """
+        try:
+            # First try as service principal (app registration)
+            result = subprocess.run(
+                ['az', 'ad', 'sp', 'show', '--id', app_id],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                sp_info = json.loads(result.stdout)
+                self.logger.info(f"App ID {app_id} is a Service Principal (App Registration)")
+                return {
+                    'type': 'service_principal',
+                    'display_name': sp_info.get('displayName', 'N/A'),
+                    'object_id': sp_info.get('id', 'N/A'),
+                    'app_id': sp_info.get('appId', 'N/A'),
+                    'details': sp_info
+                }
+            
+            # If not found as service principal, try as user
+            result = subprocess.run(
+                ['az', 'ad', 'user', 'show', '--id', app_id],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                user_info = json.loads(result.stdout)
+                self.logger.info(f"App ID {app_id} is a User Principal")
+                return {
+                    'type': 'user',
+                    'display_name': user_info.get('displayName', 'N/A'),
+                    'object_id': user_info.get('id', 'N/A'),
+                    'user_principal_name': user_info.get('userPrincipalName', 'N/A'),
+                    'details': user_info
+                }
+            
+            # If neither worked, it's unknown
+            self.logger.warning(f"Could not determine type for app ID {app_id}")
+            return {
+                'type': 'unknown',
+                'display_name': 'Unknown',
+                'object_id': 'Unknown',
+                'error': result.stderr
+            }
+            
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"Timeout while checking app ID type for {app_id}")
+            return None
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse Azure CLI response: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error checking app ID type: {e}")
+            return None
+    
     def prepare_headers(self):
         """
         Prepare headers for the HTTP client.
         Environment-aware authentication:
+        - If token is provided via ADME_BEARER_TOKEN: Use the provided token
         - Local development (osdu_perf run local): Uses Azure CLI credentials
         - Azure Load Testing (osdu_perf run azure_load_test): Uses Managed Identity
         
         Returns:
             dict: Headers to be used in HTTP requests.
         """
-        if self.is_azure_load_test_env:
-            # Production: Use Managed Identity in Azure Load Testing
-            self.logger.info("Using Managed Identity authentication (Production)")
-            token_manager = AzureTokenManager(client_id=self.app_id, use_managed_identity=True)
+        # Check if token is already provided via environment variable
+        token = os.getenv('ADME_BEARER_TOKEN')
+        
+        if token:
+            self.logger.info("Using provided token from ADME_BEARER_TOKEN environment variable")
         else:
-            # Development: Use Azure CLI credentials locally
-            self.logger.info("Using Azure CLI authentication (Development)")
-            token_manager = AzureTokenManager(client_id=self.app_id, use_managed_identity=False)
+            # No token provided, use authentication based on environment
+            if self.is_azure_load_test_env:
+                # Production: Use Managed Identity in Azure Load Testing
+                self.logger.info("Using Managed Identity authentication (Production)")
+                token_manager = AzureTokenManager(client_id=self.app_id, use_managed_identity=True)
+            else:
+                # Development: Use Azure CLI credentials locally
+                self.logger.info("Using Azure CLI authentication (Development)")
+                token_manager = AzureTokenManager(client_id=self.app_id, use_managed_identity=False)
+                
+            token = token_manager.get_access_token(scope=f"api://{self.app_id}/.default")
             
-        #token = token_manager.get_access_token("https://management.azure.com/.default") 
         test_run_id = os.getenv("TEST_RUN_ID_NAME", None) or os.getenv("TEST_RUN_ID", None)
         self.logger.info(f"Retrieved Test Run ID from environment: os.getenv('TEST_RUN_ID')={os.getenv('TEST_RUN_ID')}, os.getenv('TEST_RUN_ID_NAME')={os.getenv('TEST_RUN_ID_NAME')}")
         if test_run_id is None:
             test_run_id = self.get_test_run_id_prefix() + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-        token = token_manager.get_access_token(scope=f"api://{self.app_id}/.default")
         headers = {
             "Content-Type": "application/json",
             "data-partition-id": self.partition,

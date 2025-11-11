@@ -14,9 +14,6 @@ class AzureLoadTestCommand(Command):
         if not hasattr(args, 'config') or not args.config:
             self.logger.error("❌ Config file is required for Azure Load Tests")
             return False
-        if not hasattr(args, 'token') or not args.token:
-            self.logger.error("❌ Token is required for Azure Load Tests")
-            return False
         return True
     
     def execute(self, args) -> int:

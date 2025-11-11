@@ -30,7 +30,7 @@ Examples:
         # OSDU Connection Parameters (Optional - overrides config.yaml values)
         parser.add_argument('--host', help='OSDU host URL (overrides config.yaml)')
         parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
-        parser.add_argument('--token', required=True, help='Bearer token for OSDU authentication (required)')
+        parser.add_argument('--token', help='Bearer token for OSDU authentication (required)')
         parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
         parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
         parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
