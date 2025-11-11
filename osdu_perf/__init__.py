@@ -11,7 +11,7 @@ from .core.init_runner  import InitRunner
 from .client_base.user_base import PerformanceUser
 
 
-__version__ = "1.0.17"
+__version__ = "1.0.28"
 __author__ = "Janraj CJ"
 __email__ = "janrajcj@microsoft.com"
 

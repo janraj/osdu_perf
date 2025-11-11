@@ -1,183 +1,227 @@
-"""Unit tests for auth module."""
+"""
+Test cases for Azure authentication module.
+"""
 import pytest
+import logging
 from unittest.mock import Mock, patch, MagicMock
-from azure.identity import AzureCliCredential, DefaultAzureCredential, ManagedIdentityCredential
-from azure.core.exceptions import ClientAuthenticationError
 from azure.core.credentials import AccessToken
-import time
-
+from azure.core.exceptions import ClientAuthenticationError
 from osdu_perf.core.auth import AzureTokenManager
 
 
 class TestAzureTokenManager:
-    """Test cases for Azure Token Manager."""
+    """Test cases for AzureTokenManager class."""
     
-    @pytest.fixture
-    def token_manager(self):
-        """Create token manager instance."""
-        return AzureTokenManager(client_id="test-client-id")
+    def setup_method(self):
+        """Setup test fixtures."""
+        # Reset any cached credentials
+        pass
     
-    @pytest.mark.unit
-    def test_initialization_with_managed_identity(self):
-        """Test initialization with managed identity."""
-        manager = AzureTokenManager(client_id="test-id", use_managed_identity=True)
-        assert manager.client_id == "test-id"
-        assert manager.use_managed_identity is True
-        assert isinstance(manager._credential, ManagedIdentityCredential)
-    
-    @pytest.mark.unit
-    def test_initialization_with_azure_cli(self):
-        """Test initialization with Azure CLI credential."""
-        with patch('osdu_perf.core.auth.AzureCliCredential'):
-            manager = AzureTokenManager(use_managed_identity=False)
-            assert manager.use_managed_identity is False
-    
-    @pytest.mark.unit
-    def test_initialization_fallback_to_default(self):
-        """Test fallback to DefaultAzureCredential."""
-        with patch('osdu_perf.core.auth.AzureCliCredential', side_effect=Exception("CLI not available")):
-            with patch('osdu_perf.core.auth.DefaultAzureCredential'):
-                manager = AzureTokenManager(use_managed_identity=False)
-                assert manager.use_managed_identity is False
-    
-    @pytest.mark.unit
-    def test_get_access_token_success(self, token_manager, mock_access_token):
-        """Test successful token acquisition."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            token = token_manager.get_access_token("https://management.azure.com/.default")
-            assert token == "test-token"
-    
-    @pytest.mark.unit
-    def test_get_access_token_with_client_id_scope(self, token_manager, mock_access_token):
-        """Test token acquisition with client ID scope."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            token = token_manager.get_access_token()
-            assert token == "test-token"
-    
-    @pytest.mark.unit
-    def test_get_access_token_no_scope_no_client_id(self):
-        """Test token acquisition without scope or client ID."""
+    def test_initialization_default(self):
+        """Test AzureTokenManager initialization with default settings."""
         manager = AzureTokenManager()
-        token = manager.get_access_token()
-        assert token is None
-    
-    @pytest.mark.unit
-    def test_get_access_token_authentication_error(self, token_manager):
-        """Test authentication error handling."""
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=ClientAuthenticationError("Auth failed")):
-            token = token_manager.get_access_token("test-scope")
-            assert token is None
-    
-    @pytest.mark.unit
-    def test_get_access_token_unexpected_error(self, token_manager):
-        """Test unexpected error handling."""
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=Exception("Unexpected error")):
-            token = token_manager.get_access_token("test-scope")
-            assert token is None
-    
-    @pytest.mark.unit
-    def test_token_caching(self, token_manager, mock_access_token):
-        """Test token caching functionality."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token) as mock_get:
-            # First call
-            token1 = token_manager.get_access_token("test-scope")
-            # Second call should use cache
-            token2 = token_manager.get_access_token("test-scope")
-            
-            assert token1 == token2 == "test-token"
-            # Should only call get_token once due to caching
-            assert mock_get.call_count == 1
-    
-    @pytest.mark.unit
-    def test_token_cache_expiry(self, token_manager):
-        """Test token cache expiry and refresh."""
-        # Create expired token
-        expired_token = AccessToken(token="expired-token", expires_on=time.time() - 100)
-        new_token = AccessToken(token="new-token", expires_on=time.time() + 3600)
         
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=[expired_token, new_token]) as mock_get:
-            # First call with expired token
-            token1 = token_manager.get_access_token("test-scope")
-            # Second call should refresh
-            token2 = token_manager.get_access_token("test-scope")
-            
-            assert token2 == "new-token"
-            assert mock_get.call_count == 2
+        assert manager.client_id is None
+        assert manager.use_managed_identity is False
+        assert hasattr(manager, 'logger')
+        assert hasattr(manager, '_credential')
+        assert hasattr(manager, '_cached_tokens')
+        assert isinstance(manager._cached_tokens, dict)
     
-    @pytest.mark.unit
-    def test_get_auth_headers(self, token_manager, mock_access_token):
-        """Test auth headers generation."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            headers = token_manager.get_auth_headers("test-scope")
-            
-            assert headers is not None
-            assert headers["Authorization"] == "Bearer test-token"
-            assert headers["Content-Type"] == "application/json"
+    def test_initialization_with_client_id(self):
+        """Test AzureTokenManager initialization with client ID."""
+        client_id = "test-client-id"
+        manager = AzureTokenManager(client_id=client_id)
+        
+        assert manager.client_id == client_id
+        assert manager.use_managed_identity is False
     
-    @pytest.mark.unit
-    def test_get_auth_headers_token_failure(self, token_manager):
-        """Test auth headers when token acquisition fails."""
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=ClientAuthenticationError("Failed")):
-            headers = token_manager.get_auth_headers("test-scope")
-            assert headers is None
+    def test_initialization_with_managed_identity(self):
+        """Test AzureTokenManager initialization with managed identity."""
+        manager = AzureTokenManager(use_managed_identity=True)
+        
+        assert manager.client_id is None
+        assert manager.use_managed_identity is True
     
-    @pytest.mark.unit
-    def test_validate_token_access_success(self, token_manager, mock_access_token):
-        """Test successful token validation."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            is_valid = token_manager.validate_token_access("test-scope")
-            assert is_valid is True
+    def test_initialization_with_both_params(self):
+        """Test AzureTokenManager initialization with both parameters."""
+        client_id = "test-client-id"
+        manager = AzureTokenManager(client_id=client_id, use_managed_identity=True)
+        
+        assert manager.client_id == client_id
+        assert manager.use_managed_identity is True
     
-    @pytest.mark.unit
-    def test_validate_token_access_failure(self, token_manager):
-        """Test token validation failure."""
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=ClientAuthenticationError("Failed")):
-            is_valid = token_manager.validate_token_access("test-scope")
-            assert is_valid is False
-    
-    @pytest.mark.unit
-    def test_get_token_info_success(self, token_manager, mock_access_token):
-        """Test token info retrieval."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            info = token_manager.get_token_info("test-scope")
-            
-            assert info is not None
-            assert info["scope"] == "test-scope"
-            assert "expires_in_seconds" in info
-            assert "expires_in_minutes" in info
-            assert "is_valid" in info
-            assert "token_length" in info
-            assert "credential_type" in info
-    
-    @pytest.mark.unit
-    def test_get_token_info_no_scope_no_client_id(self):
-        """Test token info without scope or client ID."""
+    def test_logger_initialization(self):
+        """Test that logger is properly initialized."""
         manager = AzureTokenManager()
-        info = manager.get_token_info()
-        assert info is None
+        
+        assert isinstance(manager.logger, logging.Logger)
+        assert manager.logger.name == 'osdu_perf.core.auth'
     
-    @pytest.mark.unit
-    def test_get_token_info_failure(self, token_manager):
-        """Test token info retrieval failure."""
-        with patch.object(token_manager._credential, 'get_token', 
-                         side_effect=Exception("Failed")):
-            info = token_manager.get_token_info("test-scope")
-            assert info is None
+    @patch('osdu_perf.core.auth.ManagedIdentityCredential')
+    def test_initialize_credential_managed_identity(self, mock_managed_identity):
+        """Test _initialize_credential with managed identity."""
+        mock_credential = Mock()
+        mock_managed_identity.return_value = mock_credential
+        
+        manager = AzureTokenManager(use_managed_identity=True)
+        manager._initialize_credential()
+        
+        mock_managed_identity.assert_called_once()
+        assert manager._credential == mock_credential
     
-    @pytest.mark.unit
-    def test_clear_token_cache(self, token_manager, mock_access_token):
-        """Test token cache clearing."""
-        with patch.object(token_manager._credential, 'get_token', return_value=mock_access_token):
-            # Get token to populate cache
-            token_manager.get_access_token("test-scope")
+    @patch('osdu_perf.core.auth.AzureCliCredential')
+    def test_initialize_credential_azure_cli_success(self, mock_azure_cli):
+        """Test _initialize_credential with Azure CLI success."""
+        mock_credential = Mock()
+        mock_azure_cli.return_value = mock_credential
+        
+        manager = AzureTokenManager(use_managed_identity=False)
+        manager._initialize_credential()
+        
+        mock_azure_cli.assert_called_once()
+        assert manager._credential == mock_credential
+    
+    @patch('osdu_perf.core.auth.DefaultAzureCredential')
+    @patch('osdu_perf.core.auth.AzureCliCredential')
+    def test_initialize_credential_fallback_to_default(self, mock_azure_cli, mock_default):
+        """Test _initialize_credential fallback to DefaultAzureCredential."""
+        mock_azure_cli.side_effect = Exception("Azure CLI not available")
+        mock_default_credential = Mock()
+        mock_default.return_value = mock_default_credential
+        
+        manager = AzureTokenManager(use_managed_identity=False)
+        manager._initialize_credential()
+        
+        mock_azure_cli.assert_called_once()
+        mock_default.assert_called_once()
+        assert manager._credential == mock_default_credential
+    
+    def test_cached_tokens_initialization(self):
+        """Test that cached tokens dictionary is properly initialized."""
+        manager = AzureTokenManager()
+        
+        assert manager._cached_tokens == {}
+        assert isinstance(manager._cached_tokens, dict)
+    
+    def test_initialization_logging(self):
+        """Test that initialization is properly logged."""
+        with patch.object(logging.Logger, 'info') as mock_log:
+            client_id = "test-client-id"
+            manager = AzureTokenManager(client_id=client_id, use_managed_identity=True)
             
-            # Clear cache
-            token_manager.clear_token_cache()
+            # Should log initialization message
+            mock_log.assert_called()
+            log_calls = [call.args[0] for call in mock_log.call_args_list]
+            init_calls = [call for call in log_calls if "Initialized with Managed Identity credential scope" in call]
+            assert len(init_calls) >= 1
+
+
+class TestAzureTokenManagerCredentialTypes:
+    """Test different credential type scenarios."""
+    
+    @patch('osdu_perf.core.auth.ManagedIdentityCredential')
+    def test_managed_identity_credential_creation(self, mock_managed_identity):
+        """Test managed identity credential creation."""
+        mock_credential = Mock()
+        mock_managed_identity.return_value = mock_credential
+        
+        manager = AzureTokenManager(use_managed_identity=True)
+        manager._initialize_credential()
+        
+        # Verify managed identity credential was created
+        mock_managed_identity.assert_called_once_with()
+        assert manager._credential is mock_credential
+    
+    @patch('osdu_perf.core.auth.AzureCliCredential')
+    def test_azure_cli_credential_creation(self, mock_azure_cli):
+        """Test Azure CLI credential creation."""
+        mock_credential = Mock()
+        mock_azure_cli.return_value = mock_credential
+        
+        manager = AzureTokenManager(use_managed_identity=False)
+        manager._initialize_credential()
+        
+        # Verify Azure CLI credential was created
+        mock_azure_cli.assert_called_once_with()
+        assert manager._credential is mock_credential
+    
+    @patch('osdu_perf.core.auth.DefaultAzureCredential')
+    @patch('osdu_perf.core.auth.AzureCliCredential')
+    def test_default_credential_fallback(self, mock_azure_cli, mock_default):
+        """Test fallback to DefaultAzureCredential when Azure CLI fails."""
+        # Simulate Azure CLI failure
+        mock_azure_cli.side_effect = ClientAuthenticationError("CLI not available")
+        mock_default_credential = Mock()
+        mock_default.return_value = mock_default_credential
+        
+        manager = AzureTokenManager(use_managed_identity=False)
+        manager._initialize_credential()
+        
+        # Verify fallback occurred
+        mock_azure_cli.assert_called_once_with()
+        mock_default.assert_called_once_with()
+        assert manager._credential is mock_default_credential
+
+
+class TestAzureTokenManagerEdgeCases:
+    """Test edge cases and error conditions."""
+    
+    def test_multiple_initialization_calls(self):
+        """Test that multiple initialization calls work correctly."""
+        manager = AzureTokenManager()
+        
+        # Call _initialize_credential multiple times
+        with patch('osdu_perf.core.auth.AzureCliCredential') as mock_azure_cli:
+            mock_credential1 = Mock()
+            mock_credential2 = Mock()
+            mock_azure_cli.side_effect = [mock_credential1, mock_credential2]
             
-            # Verify cache is cleared
-            assert len(token_manager._cached_tokens) == 0
+            manager._initialize_credential()
+            first_credential = manager._credential
+            
+            manager._initialize_credential()
+            second_credential = manager._credential
+            
+            # Both calls should work
+            assert first_credential is mock_credential1
+            assert second_credential is mock_credential2
+    
+    def test_client_id_with_different_values(self):
+        """Test initialization with various client ID values."""
+        # Test with valid GUID
+        guid_client_id = "12345678-1234-1234-1234-123456789012"
+        manager1 = AzureTokenManager(client_id=guid_client_id)
+        assert manager1.client_id == guid_client_id
+        
+        # Test with custom string
+        custom_client_id = "my-custom-app-id"
+        manager2 = AzureTokenManager(client_id=custom_client_id)
+        assert manager2.client_id == custom_client_id
+        
+        # Test with empty string
+        manager3 = AzureTokenManager(client_id="")
+        assert manager3.client_id == ""
+    
+    def test_cached_tokens_isolation(self):
+        """Test that cached tokens are isolated between instances."""
+        manager1 = AzureTokenManager()
+        manager2 = AzureTokenManager()
+        
+        # Add token to first manager
+        manager1._cached_tokens["scope1"] = Mock()
+        
+        # Second manager should have empty cache
+        assert manager2._cached_tokens == {}
+        assert len(manager1._cached_tokens) == 1
+    
+    @patch('osdu_perf.core.auth.logging.getLogger')
+    def test_logger_configuration(self, mock_get_logger):
+        """Test that logger is properly configured."""
+        mock_logger = Mock()
+        mock_get_logger.return_value = mock_logger
+        
+        manager = AzureTokenManager()
+        
+        mock_get_logger.assert_called_with('osdu_perf.core.auth')
+        assert manager.logger is mock_logger

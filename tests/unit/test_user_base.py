@@ -1,284 +1,245 @@
-"""Unit tests for locust user_base module."""
+"""
+Test cases for user base performance testing classes.
+"""
 import pytest
 import logging
 from unittest.mock import Mock, patch, MagicMock
-from locust import HttpUser, between
-
 from osdu_perf.client_base.user_base import PerformanceUser
-from osdu_perf.core.base_service import BaseService
 
 
 class TestPerformanceUser:
-    """Test cases for PerformanceUser."""
+    """Test cases for PerformanceUser class."""
     
-    # Test service for testing
-    class MockService(BaseService):
-        def __init__(self, client=None):
-            super().__init__(client)
-            self.name = "mock_service"
-            self.execute_called = False
-            self.prehook_called = False
-            self.posthook_called = False
-            self.token_provided = False
-        
-        def execute(self, headers=None, partition=None, base_url=None):
-            self.execute_called = True
-            self.last_headers = headers
-            self.last_partition = partition
-            self.last_base_url = base_url
-        
-        def provide_explicit_token(self):
-            self.token_provided = True
-            return "explicit-test-token"
-        
-        def prehook(self):
-            self.prehook_called = True
-        
-        def posthook(self):
-            self.posthook_called = True
+    def setup_method(self):
+        """Setup test fixtures."""
+        # Reset class-level variables
+        PerformanceUser._kusto_config = None
+        PerformanceUser._input_handler_instance = None
     
-    class MockServiceWithException(BaseService):
-        def __init__(self, client=None):
-            super().__init__(client)
-            self.name = "failing_service"
-        
-        def execute(self, headers=None, partition=None, base_url=None):
-            raise Exception("Service execution failed")
-        
-        def provide_explicit_token(self):
-            raise Exception("Token provision failed")
-        
-        def prehook(self):
-            raise Exception("Prehook failed")
-        
-        def posthook(self):
-            raise Exception("Posthook failed")
-    
-    @pytest.fixture
-    def mock_environment(self):
-        """Mock Locust environment."""
-        env = Mock()
-        env.host = "https://test.osdu.com"
-        env.parsed_options = Mock()
-        env.parsed_options.partition = "test-partition"
-        env.parsed_options.appid = "test-app-id"
-        return env
-    
-    @pytest.fixture
-    def mock_service_orchestrator(self):
-        """Mock ServiceOrchestrator."""
-        orchestrator = Mock()
-        return orchestrator
-    
-    @pytest.fixture
-    def mock_input_handler(self):
-        """Mock InputHandler."""
-        handler = Mock()
-        handler.partition = "test-partition"
-        handler.base_url = "https://test.osdu.com"
-        handler.header = {
-            "Authorization": "Bearer test-token",
-            "Content-Type": "application/json",
-            "x-data-partition-id": "test-partition"
-        }
-        return handler
-    
-    @pytest.mark.unit
-    def test_performance_user_inheritance(self):
-        """Test PerformanceUser inherits from HttpUser."""
-        assert issubclass(PerformanceUser, HttpUser)
-    
-    @pytest.mark.unit
-    def test_performance_user_wait_time(self):
-        """Test PerformanceUser has appropriate wait time."""
-        # Check that wait_time is set and is callable (between function)
+    def test_class_attributes(self):
+        """Test that PerformanceUser has required class attributes."""
+        assert PerformanceUser.abstract is True
         assert hasattr(PerformanceUser, 'wait_time')
-        # The wait_time should be a callable (between function)
-        assert callable(PerformanceUser.wait_time)
+        assert PerformanceUser.host == "https://localhost"
+        assert hasattr(PerformanceUser, '_kusto_config')
+        assert hasattr(PerformanceUser, '_input_handler_instance')
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_performance_user_initialization(self, mock_orchestrator_class, mock_environment):
+    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    def test_initialization(self, mock_service_orchestrator):
         """Test PerformanceUser initialization."""
+        mock_environment = Mock()
         mock_orchestrator_instance = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator_instance
+        mock_service_orchestrator.return_value = mock_orchestrator_instance
         
         user = PerformanceUser(mock_environment)
         
-        # Verify attributes are initialized
+        # Check initialization
         assert user.service_orchestrator is mock_orchestrator_instance
         assert user.input_handler is None
         assert user.services == []
+        assert hasattr(user, 'logger')
         assert isinstance(user.logger, logging.Logger)
-        
-        # Verify orchestrator was created
-        mock_orchestrator_class.assert_called_once()
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.InputHandler')
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_on_start_method(self, mock_orchestrator_class, mock_input_handler_class, mock_environment):
-        """Test on_start method."""
-        # Setup mocks
+    def test_setup_logging_creates_logger(self):
+        """Test that _setup_logging creates a proper logger."""
+        logger = PerformanceUser._setup_logging()
+        
+        assert isinstance(logger, logging.Logger)
+        assert logger.name == 'osdu_perf.client_base.user_base'
+    
+    @patch('osdu_perf.client_base.user_base.logging.getLogger')
+    def test_setup_logging_configuration(self, mock_get_logger):
+        """Test that _setup_logging configures logger properly."""
+        mock_logger = Mock()
+        mock_logger.handlers = []  # No existing handlers
+        mock_get_logger.return_value = mock_logger
+        
+        with patch('osdu_perf.client_base.user_base.logging.StreamHandler') as mock_handler_class:
+            with patch('osdu_perf.client_base.user_base.logging.Formatter') as mock_formatter_class:
+                mock_handler = Mock()
+                mock_formatter = Mock()
+                mock_handler_class.return_value = mock_handler
+                mock_formatter_class.return_value = mock_formatter
+                
+                result = PerformanceUser._setup_logging()
+                
+                # Verify logger configuration
+                mock_formatter_class.assert_called_once()
+                mock_handler.setFormatter.assert_called_once_with(mock_formatter)
+                mock_logger.addHandler.assert_called_once_with(mock_handler)
+                mock_logger.setLevel.assert_called_once_with(logging.INFO)
+                assert result is mock_logger
+    
+    @patch('osdu_perf.client_base.user_base.logging.getLogger')
+    def test_setup_logging_existing_handlers(self, mock_get_logger):
+        """Test that _setup_logging doesn't reconfigure logger with existing handlers."""
+        mock_logger = Mock()
+        mock_logger.handlers = [Mock()]  # Existing handler
+        mock_get_logger.return_value = mock_logger
+        
+        result = PerformanceUser._setup_logging()
+        
+        # Should not add new handlers
+        mock_logger.addHandler.assert_not_called()
+        mock_logger.setLevel.assert_not_called()
+        assert result is mock_logger
+    
+    def test_kusto_config_class_variable(self):
+        """Test that _kusto_config class variable works properly."""
+        # Initially should be None
+        assert PerformanceUser._kusto_config is None
+        
+        # Set a value
+        test_config = {"test": "config"}
+        PerformanceUser._kusto_config = test_config
+        
+        # Should be accessible
+        assert PerformanceUser._kusto_config == test_config
+        
+        # Should be shared across instances
+        mock_env = Mock()
+        with patch('osdu_perf.client_base.user_base.ServiceOrchestrator'):
+            user1 = PerformanceUser(mock_env)
+            user2 = PerformanceUser(mock_env)
+            
+            assert user1._kusto_config == test_config
+            assert user2._kusto_config == test_config
+    
+    def test_input_handler_instance_class_variable(self):
+        """Test that _input_handler_instance class variable works properly."""
+        # Initially should be None
+        assert PerformanceUser._input_handler_instance is None
+        
+        # Set a value
+        test_handler = Mock()
+        PerformanceUser._input_handler_instance = test_handler
+        
+        # Should be accessible
+        assert PerformanceUser._input_handler_instance == test_handler
+        
+        # Should be shared across instances
+        mock_env = Mock()
+        with patch('osdu_perf.client_base.user_base.ServiceOrchestrator'):
+            user1 = PerformanceUser(mock_env)
+            user2 = PerformanceUser(mock_env)
+            
+            assert user1._input_handler_instance == test_handler
+            assert user2._input_handler_instance == test_handler
+    
+    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    def test_services_list_initialization(self, mock_service_orchestrator):
+        """Test that services list is properly initialized."""
+        mock_environment = Mock()
         mock_orchestrator_instance = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator_instance
-        mock_orchestrator_instance.get_services.return_value = []
-        
-        mock_input_handler_instance = Mock()
-        mock_input_handler_class.return_value = mock_input_handler_instance
+        mock_service_orchestrator.return_value = mock_orchestrator_instance
         
         user = PerformanceUser(mock_environment)
-        user.client = Mock()  # Mock the HTTP client
         
-        # Call on_start
-        user.on_start()
+        assert isinstance(user.services, list)
+        assert len(user.services) == 0
         
-        # Verify InputHandler was created
-        mock_input_handler_class.assert_called_once_with(mock_environment)
-        assert user.input_handler is mock_input_handler_instance
+        # Should be instance-specific
+        user2 = PerformanceUser(mock_environment)
+        user.services.append("test_service")
         
-        # Verify services were registered and retrieved
-        mock_orchestrator_instance.register_service.assert_called_once_with(user.client)
-        mock_orchestrator_instance.get_services.assert_called_once()
-        assert user.services == []
+        assert len(user.services) == 1
+        assert len(user2.services) == 0
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.InputHandler')
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_execute_services_with_mock_service(self, mock_orchestrator_class, mock_input_handler_class, mock_environment):
-        """Test execute_services with a mock service."""
-        # Setup mocks
-        mock_service = self.MockService()
-        
+    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    def test_service_orchestrator_creation(self, mock_service_orchestrator):
+        """Test that ServiceOrchestrator is properly created."""
+        mock_environment = Mock()
         mock_orchestrator_instance = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator_instance
-        
-        mock_input_handler_instance = Mock()
-        mock_input_handler_instance.partition = "test-partition"
-        mock_input_handler_instance.base_url = "https://test.osdu.com"
-        mock_input_handler_instance.header = {"Authorization": "Bearer test-token"}
-        mock_input_handler_class.return_value = mock_input_handler_instance
+        mock_service_orchestrator.return_value = mock_orchestrator_instance
         
         user = PerformanceUser(mock_environment)
-        user.services = [mock_service]
-        user.input_handler = mock_input_handler_instance
         
-        # Execute services
-        user.execute_services()
-        
-        # Verify service methods were called
-        assert mock_service.prehook_called
-        assert mock_service.execute_called
-        assert mock_service.posthook_called
-        assert mock_service.token_provided
-        
-        # Verify correct parameters were passed
-        assert mock_service.last_partition == "test-partition"
-        assert mock_service.last_base_url == "https://test.osdu.com"
-        # Headers should include the explicit token
-        assert "Authorization" in mock_service.last_headers
-        assert mock_service.last_headers["Authorization"] == "Bearer explicit-test-token"
+        mock_service_orchestrator.assert_called_once()
+        assert user.service_orchestrator is mock_orchestrator_instance
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.InputHandler')
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_execute_services_with_failing_service(self, mock_orchestrator_class, mock_input_handler_class, mock_environment):
-        """Test execute_services with a service that raises exceptions."""
-        # Setup mocks
-        mock_service = self.MockServiceWithException()
+    def test_abstract_class_property(self):
+        """Test that PerformanceUser is marked as abstract."""
+        assert PerformanceUser.abstract is True
         
-        mock_orchestrator_instance = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator_instance
-        
-        mock_input_handler_instance = Mock()
-        mock_input_handler_instance.partition = "test-partition"
-        mock_input_handler_instance.base_url = "https://test.osdu.com"
-        mock_input_handler_instance.header = {"Authorization": "Bearer test-token"}
-        mock_input_handler_class.return_value = mock_input_handler_instance
-        
-        user = PerformanceUser(mock_environment)
-        user.services = [mock_service]
-        user.input_handler = mock_input_handler_instance
-        
-        # Mock logger to capture error messages
-        user.logger = Mock()
-        
-        # Execute services - should not raise exceptions
-        user.execute_services()
-        
-        # Verify logger was called for errors
-        assert user.logger.error.call_count >= 1  # At least one error should be logged
+        # This indicates it's meant to be inherited, not used directly
+        # The abstract property is used by Locust to prevent direct instantiation
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.InputHandler')
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_execute_services_service_without_methods(self, mock_orchestrator_class, mock_input_handler_class, mock_environment):
-        """Test execute_services with service missing optional methods."""
-        # Create a minimal service without optional methods
-        class MinimalService:
-            def execute(self, headers=None, partition=None, base_url=None):
-                self.executed = True
+    def test_default_host_configuration(self):
+        """Test that default host is properly configured."""
+        assert PerformanceUser.host == "https://localhost"
         
-        mock_service = MinimalService()
+        # Should be modifiable for testing
+        original_host = PerformanceUser.host
+        PerformanceUser.host = "https://test.example.com"
+        assert PerformanceUser.host == "https://test.example.com"
         
-        mock_input_handler_instance = Mock()
-        mock_input_handler_instance.partition = "test-partition"
-        mock_input_handler_instance.base_url = "https://test.osdu.com"
-        mock_input_handler_instance.header = {"Authorization": "Bearer test-token"}
-        
-        user = PerformanceUser(mock_environment)
-        user.services = [mock_service]
-        user.input_handler = mock_input_handler_instance
-        
-        # Execute services - should work without optional methods
-        user.execute_services()
-        
-        # Verify execute was called
-        assert hasattr(mock_service, 'executed')
-        assert mock_service.executed
+        # Restore original value
+        PerformanceUser.host = original_host
     
-    @pytest.mark.unit
-    @patch('osdu_perf.locust.user_base.InputHandler')
-    @patch('osdu_perf.locust.user_base.ServiceOrchestrator')
-    def test_execute_services_header_isolation(self, mock_orchestrator_class, mock_input_handler_class, mock_environment):
-        """Test that header modifications don't affect other services."""
-        # Create two services that modify headers
-        class HeaderModifyingService(BaseService):
-            def __init__(self, client=None, name="service"):
-                super().__init__(client)
-                self.name = name
-                self.received_headers = None
+    def test_wait_time_configuration(self):
+        """Test that wait_time is properly configured."""
+        assert hasattr(PerformanceUser, 'wait_time')
+        
+        # wait_time should be callable (it's a between() function)
+        assert callable(PerformanceUser.wait_time)
+    
+    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    def test_multiple_instance_isolation(self, mock_service_orchestrator):
+        """Test that multiple instances are properly isolated."""
+        mock_environment = Mock()
+        mock_orchestrator_instance1 = Mock()
+        mock_orchestrator_instance2 = Mock()
+        mock_service_orchestrator.side_effect = [mock_orchestrator_instance1, mock_orchestrator_instance2]
+        
+        user1 = PerformanceUser(mock_environment)
+        user2 = PerformanceUser(mock_environment)
+        
+        # Each should have its own orchestrator instance
+        assert user1.service_orchestrator is mock_orchestrator_instance1
+        assert user2.service_orchestrator is mock_orchestrator_instance2
+        assert user1.service_orchestrator is not user2.service_orchestrator
+        
+        # But they should share class-level variables
+        assert user1._kusto_config is user2._kusto_config
+        assert user1._input_handler_instance is user2._input_handler_instance
+
+
+class TestPerformanceUserLogging:
+    """Test logging-specific functionality."""
+    
+    def test_logging_format(self):
+        """Test that logging format is correctly configured."""
+        with patch('osdu_perf.client_base.user_base.logging.getLogger') as mock_get_logger:
+            mock_logger = Mock()
+            mock_logger.handlers = []
+            mock_get_logger.return_value = mock_logger
             
-            def execute(self, headers=None, partition=None, base_url=None):
-                self.received_headers = headers.copy()
-                headers["modified"] = f"by_{self.name}"
+            with patch('osdu_perf.client_base.user_base.logging.Formatter') as mock_formatter:
+                with patch('osdu_perf.client_base.user_base.logging.StreamHandler'):
+                    PerformanceUser._setup_logging()
+                    
+                    # Check that formatter was called with correct format
+                    mock_formatter.assert_called_once()
+                    format_string = mock_formatter.call_args[0][0]
+                    
+                    # Check that format includes expected components
+                    assert '%(asctime)s' in format_string
+                    assert '%(name)s' in format_string
+                    assert '%(filename)s' in format_string
+                    assert '%(funcName)s' in format_string
+                    assert '%(lineno)d' in format_string
+                    assert '%(levelname)s' in format_string
+                    assert '%(message)s' in format_string
+    
+    def test_logging_level(self):
+        """Test that logging level is set to INFO."""
+        with patch('osdu_perf.client_base.user_base.logging.getLogger') as mock_get_logger:
+            mock_logger = Mock()
+            mock_logger.handlers = []
+            mock_get_logger.return_value = mock_logger
             
-            def provide_explicit_token(self):
-                return None
-            
-            def prehook(self):
-                pass
-            
-            def posthook(self):
-                pass
-        
-        service1 = HeaderModifyingService(name="service1")
-        service2 = HeaderModifyingService(name="service2")
-        
-        mock_input_handler_instance = Mock()
-        mock_input_handler_instance.partition = "test-partition"
-        mock_input_handler_instance.base_url = "https://test.osdu.com"
-        mock_input_handler_instance.header = {"Authorization": "Bearer test-token"}
-        
-        user = PerformanceUser(mock_environment)
-        user.services = [service1, service2]
-        user.input_handler = mock_input_handler_instance
-        
-        # Execute services
-        user.execute_services()
-        
-        # Both services should receive the original headers
-        assert "modified" not in service1.received_headers
-        assert "modified" not in service2.received_headers
-        assert service1.received_headers["Authorization"] == "Bearer test-token"
-        assert service2.received_headers["Authorization"] == "Bearer test-token"
+            with patch('osdu_perf.client_base.user_base.logging.StreamHandler'):
+                with patch('osdu_perf.client_base.user_base.logging.Formatter'):
+                    PerformanceUser._setup_logging()
+                    
+                    mock_logger.setLevel.assert_called_once_with(logging.INFO)

@@ -318,7 +318,7 @@ class AzureLoadTestRunner:
                    users: int = 10,
                    spawn_rate: int = 2,
                    run_time: str = "60s",
-                   engine_instances: int = 1) -> Optional[Dict[str, Any]]:
+                   engine_instances: int = 1, tags: str = "") -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -381,6 +381,7 @@ class AzureLoadTestRunner:
             environment_variables["OSDU_ENV"] = "performance_test"
             environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
             environment_variables["TEST_RUN_ID_NAME"] = self.test_runid_name
+            environment_variables["LOCUST_TAGS"] = tags 
             
             body = {
                 "displayName": display_name,
@@ -567,11 +568,11 @@ class AzureLoadTestRunner:
                         host: Optional[str] = None,
                         partition: Optional[str] = None,
                         app_id: Optional[str] = None, 
-                        token: Optional[str] = None,
                         users: int = 10,
                         spawn_rate: int = 2,
                         run_time: str = "60s",
-                        engine_instances: int = 1) -> bool:
+                        engine_instances: int = 1,
+                        tags: str = "") -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         
@@ -686,7 +687,11 @@ class AzureLoadTestRunner:
             self.logger.info(f"   Spawn Rate: {spawn_rate}/sec")
             self.logger.info(f"   Run Time: {run_time}")
             self.logger.info(f"   Engine Instances: {engine_instances}")
+            self.logger.info("    Test Scenario tags: {tags}")
             data_plane_token = self.get_data_plane_token()
+            if not data_plane_token:
+                self.logger.error("Failed to acquire data plane token")
+                return False
             test_result = self.create_test(
                 test_name=test_name, 
                 test_files=path_objects,
@@ -697,7 +702,8 @@ class AzureLoadTestRunner:
                 users=users,
                 spawn_rate=spawn_rate,
                 run_time=run_time,
-                engine_instances=engine_instances
+                engine_instances=engine_instances,
+                tags=tags
             )
             if not test_result:
                 self.logger.error("Failed to create test in Azure Load Test resource")
@@ -923,128 +929,6 @@ class AzureLoadTestRunner:
         except Exception as e:
             self.logger.error(f"❌ Error running test '{test_name}': {e}")
         return None
-
-        '''
-        try:
-            
-            self.logger.info(f"Starting test execution for '{test_name}' using Data Plane API...")
-            token = self.get_data_plane_token()
-            # Wait for test script validation to complete before starting execution
-            if not self._wait_for_test_validation(test_name, 120,  token):
-                self.logger.error(f"Test script validation failed for '{test_name}'")
-                return None
-            
-            # Create execution configuration with proper display name validation
-            timestamp = int(time.time())
-            
-            # Ensure display name meets Azure Load Testing requirements (2-50 characters)
-            if display_name:
-                # Use provided display name but ensure it meets length requirements
-                if len(display_name) < 2:
-                    display_name = f"{display_name}-run"
-                elif len(display_name) > 50:
-                    display_name = display_name[:47] 
-            else:
-                # Generate a display name that fits within limits
-                base_name = test_name[:20] if len(test_name) > 20 else test_name
-                display_name = f"{base_name}-{timestamp}"[:47]
-                # Ensure it's within the 50 character limit
-            
-            self.logger.info(f"🏷️  Using display name: '{display_name}' (length: {len(display_name)})")
-            
-            # Start test execution using Data Plane API  
-            execution_url = f"{self.data_plane_url}/test-runs/{test_name}?api-version={self.api_version}"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/merge-patch+json"
-            }
-            
-            # Build the test run configuration
-            test_run_config = {
-                "testId": test_name,
-                "displayName": display_name,
-                "description": f"Load test execution for {test_name} via OSDU Performance Framework"
-            }
-            # Create urllib request for test execution
-            json_payload = json.dumps(test_run_config).encode('utf-8')
-            req = urllib.request.Request(execution_url, data=json_payload, method='POST')
-            
-            # Add headers
-            for key, value in headers.items():
-                req.add_header(key, value)
-            
-            try:
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    response_obj = UrllibResponse(response.getcode(), response.read(), dict(response.headers))
-            except urllib.error.HTTPError as e:
-                error_content = e.read() if hasattr(e, 'read') else b''
-                response_obj = UrllibResponse(e.code, error_content, dict(e.headers) if hasattr(e, 'headers') else {})
-            
-            response = response_obj
-            # Debug response
-            self.logger.info(f"Test execution response status: {response.status_code}")
-            if response.status_code not in [200, 201]:
-                self.logger.error(f"Response headers: {dict(response.headers)}")
-                self.logger.error(f"Response text: {response.text}")
-            
-            if response.status_code in [200, 201]:
-                result = response.json() if response.content else {}
-                execution_id = result.get('testRunId', result.get('name', 'unknown'))
-                self.logger.info(f"✅ Test execution started successfully - Execution ID: {execution_id}")
-                return result
-            elif response.status_code == 400:
-                # Check if this is the validation error
-                try:
-                    error_response = response.json()
-                    error_code = error_response.get('error', {}).get('code')
-                    error_message = error_response.get('error', {}).get('message', '')
-                    
-                    if error_code == 'MissingValidatedTestScriptFile':
-                        self.logger.warning(f"⚠️ Test script still being validated: {error_message}")
-                        
-                        # Retry the execution once more
-                        self.logger.info("🔄 Retrying test execution after validation wait...")
-                        
-                        # Create urllib request for retry
-                        retry_req = urllib.request.Request(execution_url, data=json_payload, method='PATCH')
-                        
-                        # Add headers
-                        for key, value in headers.items():
-                            retry_req.add_header(key, value)
-                        
-                        try:
-                            with urllib.request.urlopen(retry_req, timeout=30) as retry_response:
-                                retry_response_obj = UrllibResponse(retry_response.getcode(), retry_response.read(), dict(retry_response.headers))
-                        except urllib.error.HTTPError as e:
-                            error_content = e.read() if hasattr(e, 'read') else b''
-                            retry_response_obj = UrllibResponse(e.code, error_content, dict(e.headers) if hasattr(e, 'headers') else {})
-                        
-                        retry_response = retry_response_obj
-                        
-                        if retry_response.status_code in [200, 201]:
-                            result = retry_response.json() if retry_response.content else {}
-                            execution_id = result.get('testRunId', result.get('name', 'unknown'))
-                            self.logger.info(f"✅ Test execution started successfully on retry - Execution ID: {execution_id}")
-                            return result
-                        else:
-                            self.logger.error(f"❌ Retry also failed: {retry_response.status_code} - {retry_response.text}")
-                            return None
-                    else:
-                        self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
-                        return None
-                except Exception as e:
-                    self.logger.error(f"❌ Error parsing error response: {e}")
-                    self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
-                    return None
-            else:
-                self.logger.error(f"❌ Failed to start test execution: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"❌ Error starting test execution '{test_name}': {e}")
-            return None
-        '''        
-
        
     def get_app_id_from_principal_id(self, principal_id: str) -> str:
         """
@@ -1215,7 +1099,7 @@ def main():
         demo_logger.error("3. Verify subscription: az account show")
         demo_logger.error("4. Check permissions for creating resources")
 
-    runner.create_tests_and_upload_test_files("demo_test", test_directory="./perf_tests", host="https://your-osdu-host.com", partition="opendes", app_id="your-app-id")
+    runner.create_tests_and_upload_test_files("demo_test", test_directory="./perf_tests", host="https://your-osdu-host.com", partition="opendes", app_id="your-app-id", tags="smoke")
 
 if __name__ == "__main__":
     main()

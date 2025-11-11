@@ -18,7 +18,7 @@ class PerformanceUser(HttpUser):
     Base user class for performance testing with automatic service discovery.
     Inherit from this class in your locustfile.
     """
-
+    abstract = True
     # Default pacing between tasks - will be updated from config in on_start
     wait_time = between(1, 3)
     host = "https://localhost"  # Default host for testing
@@ -56,13 +56,64 @@ class PerformanceUser(HttpUser):
         
         # Store config at class level for access in static methods
         PerformanceUser._kusto_config = self.input_handler.get_kusto_config()
-        PerformanceUser._input_handler_instance = self.input_handler
-        
-        
+        PerformanceUser._input_handler_instance = self.input_handler      
         self.service_orchestrator.register_service(self.client)
         self.services = self.service_orchestrator.get_services()
+
+    def get_host(self):
+        """Return the host URL for this user"""
+        return self.input_handler.base_url
     
-   
+    def get_partition(self):
+        """Return the partition for this user"""
+        return self.input_handler.partition
+    
+    def get_appid(self):
+        """Return the app ID for this user"""
+        return self.input_handler.app_id
+    
+    def get_token(self):
+        """Return the token for this user"""
+        return os.getenv('ADME_BEARER_TOKEN')
+    
+    def get_headers(self):
+        """Return the default headers for this user"""
+        return self.input_handler.header
+    
+    def get_logger(self):
+        return self.logger
+    
+    def get(self, endpoint, name=None, headers=None, **kwargs):
+        return self._request("GET", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
+
+    def post(self, endpoint, data=None, name=None, headers=None, **kwargs):
+        return self._request("POST", f"{self.input_handler.base_url}{endpoint}", name, headers, json=data, **kwargs)
+
+    def put(self, endpoint, data=None, name=None, headers=None, **kwargs):
+        return self._request("PUT", f"{self.input_handler.base_url}{endpoint}", name, headers, json=data, **kwargs)
+
+    def delete(self, endpoint, name=None, headers=None, **kwargs):
+        return self._request("DELETE", f"{self.input_handler.base_url}{endpoint}", name, headers, **kwargs)
+
+    def _request(self, method, url, name, headers, **kwargs):
+        self.logger.info(f"[PerformanceUser] Making {method} request to {url} with name={name} ")   
+        merged_headers = dict(self.input_handler.header)
+        token = os.getenv("ADME_BEARER_TOKEN", None)
+        if token:
+            self.logger.debug("[PerformanceUser] Using ADME_BEARER_TOKEN from environment for Authorization header")
+            merged_headers['Authorization'] = f"Bearer {token}"
+        if headers:
+            self.logger.debug(f"[PerformanceUser] Merging additional headers: {headers}")   
+            merged_headers.update(headers)
+
+        with self.client.request(method=method,url=url,headers=merged_headers,name=name,catch_response=True,**kwargs) as response:
+            if not response.ok:
+                self.logger.error(f"[PerformanceUser] {method} {url} failed with status code {response.status_code}")   
+                response.failure(f"{method} {url} failed with {response.status_code}")
+            self.logger.debug(f"[PerformanceUser] {method} {url} succeeded with status code {response.status_code}")
+            return response
+        
+    '''
     @task
     def execute_services(self):
         """Execute all registered services"""
@@ -110,6 +161,7 @@ class PerformanceUser(HttpUser):
                     )
                 except Exception as e:
                     self.logger.error(f"Service posthook failed: {e}")
+    '''
     @staticmethod
     def get_ADME_name(host):
         """Return the ADME name for this user class"""
@@ -182,6 +234,8 @@ class PerformanceUser(HttpUser):
             logger.info(f"Using Test Run ID : {test_run_id}")
                 
             current_timestamp = datetime.utcnow()
+
+            test_scenario = input_handler.get_test_scenario(os.getenv("LOCUST_TAGS", None) )
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
@@ -250,7 +304,8 @@ class PerformanceUser(HttpUser):
                     "LastRequestTimestamp": end_time,
                     "Timestamp": current_timestamp.isoformat(),
                     "TestRunId": test_run_id,
-                    "Throughput": throughput
+                    "Throughput": throughput,
+                    "TestScenario": test_scenario
                 })
             
             # 2. PREPARE EXCEPTIONS DATA
@@ -272,7 +327,8 @@ class PerformanceUser(HttpUser):
                     "Traceback": str(getattr(error_entry, 'traceback', '')),
                     "ErrorMessage": str(getattr(error_entry, 'msg', '')),
                     "Service": PerformanceUser.get_service_name(name),
-                    "Timestamp": current_timestamp.isoformat()
+                    "Timestamp": current_timestamp.isoformat(),
+                    "TestScenario": test_scenario
                 })
             
             # 3. PREPARE SUMMARY DATA
@@ -311,7 +367,8 @@ class PerformanceUser(HttpUser):
                 "TestDurationSeconds": float(test_duration),
                 "AverageRPS": float(average_rps),
                 "Timestamp": current_timestamp.isoformat(),
-                "Throughput": throughput
+                "Throughput": throughput,
+                "TestScenario": test_scenario
             }]
             
             # CREATE INGESTION PROPERTIES
@@ -354,7 +411,7 @@ class PerformanceUser(HttpUser):
                                "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
                                "CurrentFailPerSec", "AverageRPS", "RequestsPerSec", "FailuresPerSec", 
                                "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
-                               "Timestamp", "TestRunId", "Throughput"]
+                               "Timestamp", "TestRunId", "Throughput", "TestScenario"]
                 stats_csv = create_csv_string(stats_results, stats_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(stats_csv), 
@@ -364,7 +421,7 @@ class PerformanceUser(HttpUser):
 
             if exceptions_results:
                 exceptions_headers = ["TestEnv", "TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
-                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp"]
+                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp", "TestScenario"]
                 exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(exceptions_csv), 
@@ -379,7 +436,7 @@ class PerformanceUser(HttpUser):
                                  "ResponseTime80th", "ResponseTime90th", "ResponseTime95th", "ResponseTime98th", 
                                  "ResponseTime99th", "ResponseTime999th", "CurrentRPS", "CurrentFailPerSec", 
                                  "RequestsPerSec", "FailuresPerSec", "FailRatio", "TotalContentLength", 
-                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput"]
+                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput", "TestScenario"]
                 summary_csv = create_csv_string(summary_results, summary_headers)
                 ingest_client.ingest_from_stream(
                     io.StringIO(summary_csv), 
