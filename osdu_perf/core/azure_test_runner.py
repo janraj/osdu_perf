@@ -318,7 +318,7 @@ class AzureLoadTestRunner:
                    users: int = 10,
                    spawn_rate: int = 2,
                    run_time: str = "60s",
-                   engine_instances: int = 1, tags: str = "") -> Optional[Dict[str, Any]]:
+                   engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -382,6 +382,11 @@ class AzureLoadTestRunner:
             environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
             environment_variables["TEST_RUN_ID_NAME"] = self.test_runid_name
             environment_variables["LOCUST_TAGS"] = tags 
+            environment_variables["ADME_BEARER_TOKEN"] = adme_token  # Pass the token for authentication 
+            environment_variables["LAST_TEST_TIME_STAMP"] = str(int(time.time()))  # Unique test iteration based on timestamp
+
+            print(f"JANRAJ uploading token is = {adme_token}")
+
             
             body = {
                 "displayName": display_name,
@@ -572,7 +577,7 @@ class AzureLoadTestRunner:
                         spawn_rate: int = 2,
                         run_time: str = "60s",
                         engine_instances: int = 1,
-                        tags: str = "") -> bool:
+                        tags: str = "", adme_token: Optional[str] = None) -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         
@@ -600,6 +605,7 @@ class AzureLoadTestRunner:
             
             # Search patterns for performance test files and locustfile
             search_patterns = [
+                os.path.join(test_directory, "perf_*.json"),
                 os.path.join(test_directory, "perf_*_test.py"),
                 os.path.join(test_directory, "**", "perf_*_test.py"),
                 os.path.join(test_directory, "perf_*test.py"),
@@ -703,7 +709,8 @@ class AzureLoadTestRunner:
                 spawn_rate=spawn_rate,
                 run_time=run_time,
                 engine_instances=engine_instances,
-                tags=tags
+                tags=tags,
+                adme_token=adme_token
             )
             if not test_result:
                 self.logger.error("Failed to create test in Azure Load Test resource")
