@@ -1,8 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
-from datetime import datetime, timezone
-import pytz
+from typing import Optional
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
 
 
@@ -42,15 +40,7 @@ class AzureCliStrategy(AuthenticationStrategy):
             if token:
                 self._cached_tokens[scope] = token.token
                 self.logger.info(f"Obtained new token for scope: {scope} and token is = {token.token}")
-                
-                # Convert expiry time to IST and log it
-                if hasattr(token, 'expires_on'):
-                    # expires_on is a Unix timestamp
-                    expiry_utc = datetime.fromtimestamp(token.expires_on, tz=timezone.utc)
-                    ist_timezone = pytz.timezone('Asia/Kolkata')
-                    expiry_ist = expiry_utc.astimezone(ist_timezone)
-                    self.logger.info(f"🔑 Token expires at: {expiry_ist.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-                
+
             return token.token
         except Exception as e:
             self.logger.error(f"Error obtaining token from Azure CLI: {e}")
