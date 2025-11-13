@@ -17,7 +17,7 @@ class LocalTestCommand(Command):
             if not self.validate_args(args):
                 return 1
                 
-            from osdu_perf.operations.local_test_runner import LocalTestRunner
+            from osdu_perf.operations.local_test_operation import LocalTestRunner
             runner = LocalTestRunner(logger=self.logger)
             return runner.run_local_tests(args)
         except Exception as e:

@@ -23,7 +23,7 @@ class AzureLoadTestCommand(Command):
                 return 1
                 
             # Existing Azure load test logic here
-            from osdu_perf.operations.azure_test_runner import AzureLoadTestRunner
+            from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner
             
             config = self._load_azure_configuration(args)
             self._validate_azure_parameters(config)
@@ -169,7 +169,7 @@ class AzureLoadTestCommand(Command):
 
     def _create_azure_test_runner(self, config, args):
         """Create and configure AzureLoadTestRunner instance."""
-        from osdu_perf.operations.azure_test_runner import AzureLoadTestRunner
+        from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner
         
         return AzureLoadTestRunner(
             subscription_id=config['subscription_id'],

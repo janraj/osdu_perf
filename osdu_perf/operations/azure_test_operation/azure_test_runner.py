@@ -963,7 +963,7 @@ class AzureLoadTestRunner:
             self.logger.info(f"Resolved app ID: {app_id}")
             
             # Step 2: Import and create Entitlement object
-            from .entitlement import Entitlement
+            from ..entitlement import Entitlement
             
             self.logger.info("Creating entitlement manager...")
             entitlement = Entitlement(

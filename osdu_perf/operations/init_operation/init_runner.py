@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import getpass
-from ..utils.logger import get_logger
+from ...utils.logger import get_logger
 
 class InitRunner:
     def __init__(self):
