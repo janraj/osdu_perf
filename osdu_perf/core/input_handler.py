@@ -36,19 +36,6 @@ class InputHandler:
             self.base_url = None
             self.app_id = None
         
-        self.app_id_type = None
-        if self.app_id:
-            app_id_info = self.check_app_id_type(self.app_id)
-            if app_id_info:
-                if app_id_info['type'] == 'service_principal':
-                    self.logger.info(f"✓ App ID is a Service Principal (App Registration): {app_id_info['display_name']}")
-                    self.app_id_type = 'service_principal'
-                elif app_id_info['type'] == 'user':
-                    self.logger.warning(f"⚠ App ID is a User Principal (not recommended): {app_id_info['display_name']}")
-                    self.app_id_type = 'user'
-                else:
-                    self.logger.warning(f"⚠ Could not determine app ID type for: {self.app_id}")
-                    self.app_id_type = 'unknown'
         # Only prepare headers if we have environment data
         if environment is not None or self.is_azure_load_test_env:
             self.header = self.prepare_headers()
@@ -133,6 +120,74 @@ class InputHandler:
         self.logger.info("Detected local development environment")
         return False
     
+    def get_token_for_control_path(self, app_id: str) -> Optional[str]:
+        """
+        Get token for control path based on app ID type.
+        
+        For Service Principals: Returns None (uses standard MI/CLI auth flow)
+        For User Principals: Returns token from Azure CLI account
+        
+        Args:
+            app_id: Azure AD app ID to check and get token for
+            
+        Returns:
+            Token string if user principal, None if service principal or unknown
+        """
+        if not app_id:
+            self.app_id_type = None
+            return None
+        
+        app_id_info = self.check_app_id_type(app_id)
+        if not app_id_info:
+            self.app_id_type = 'unknown'
+            self.logger.warning(f"Could not determine app ID type for: {app_id}")
+            return None
+        
+        self.app_id_type = app_id_info['type']
+        display_name = app_id_info['display_name']
+        
+        # Handler functions for each principal type
+        handlers = {
+            'service_principal': lambda: (
+                self.logger.warning(f"✔️ Service Principal (App Registration): {display_name}. Ensure user OID is registered with ADME."),
+                None
+            )[1],
+            
+            'user': lambda: self._get_user_token(app_id, display_name),
+            
+            'unknown': lambda: (
+                self.logger.warning(f"⚠ Unknown app ID type: {app_id}"),
+                None
+            )[1]
+        }
+        
+        return handlers.get(self.app_id_type, lambda: None)()
+    
+    def _get_user_token(self, app_id: str, display_name: str) -> Optional[str]:
+        """
+        Helper method to get token for user principal.
+        
+        Args:
+            app_id: Azure AD app ID
+            display_name: Display name of the user principal
+            
+        Returns:
+            Access token string or None if retrieval fails
+        """
+        self.logger.warning(f"⚠ App ID is a User Principal: {display_name}")
+        self.logger.info("Using Azure CLI authentication for user principal")
+        
+        try:
+            token_manager = AzureTokenManager(
+                client_id=app_id, 
+                use_managed_identity=False
+            )
+            return token_manager.az_account_get_access_token()
+        except Exception as e:
+            self.logger.error(f"Failed to get token for user principal: {e}")
+            return None
+
+    
     def check_app_id_type(self, app_id: str) -> Optional[Dict[str, Any]]:
         """
         Check if the given app ID is a user (User Principal) or app registration (Service Principal).
@@ -148,20 +203,55 @@ class InputHandler:
                 'object_id': str,
                 'details': dict  # Additional information
             }
-            Returns None if unable to determine
+            Returns None if unable to determine or on error
         """
+        self.logger.info(f"Checking App ID type for: {app_id}")
+        
+        # Try service principal first
+        sp_result = self._check_service_principal(app_id)
+        if sp_result:
+            return sp_result
+        
+        # Try user principal second
+        user_result = self._check_user_principal(app_id)
+        if user_result:
+            return user_result
+        
+        # If neither worked, return unknown
+        self.logger.warning(f"Could not determine type for app ID: {app_id}")
+        return {
+            'type': 'unknown',
+            'display_name': 'Unknown',
+            'object_id': 'Unknown',
+            'app_id': app_id
+        }
+    
+    def _check_service_principal(self, app_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if app ID is a service principal.
+        
+        Args:
+            app_id: Azure AD app ID to check
+            
+        Returns:
+            Dictionary with service principal info or None if not found
+        """
+        self.logger.debug(f"Checking if App ID is a Service Principal: {app_id}")
         try:
-            # First try as service principal (app registration)
             result = subprocess.run(
                 ['az', 'ad', 'sp', 'show', '--id', app_id],
                 capture_output=True,
                 text=True,
-                timeout=10
+                check=True,
+                shell=True
             )
             
             if result.returncode == 0:
                 sp_info = json.loads(result.stdout)
-                self.logger.info(f"App ID {app_id} is a Service Principal (App Registration)")
+                self.logger.info(
+                    f"✓ App ID {app_id} is a Service Principal: "
+                    f"{sp_info.get('displayName', 'N/A')}"
+                )
                 return {
                     'type': 'service_principal',
                     'display_name': sp_info.get('displayName', 'N/A'),
@@ -169,18 +259,41 @@ class InputHandler:
                     'app_id': sp_info.get('appId', 'N/A'),
                     'details': sp_info
                 }
+        except subprocess.TimeoutExpired:
+            self.logger.warning(f"Timeout checking service principal for: {app_id}")
+        except json.JSONDecodeError as e:
+            self.logger.debug(f"Invalid JSON from service principal check: {e}")
+        except Exception as e:
+            self.logger.debug(f"Not a service principal: {e}")
+        
+        return None
+    
+    def _check_user_principal(self, app_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if app ID is a user principal.
+        
+        Args:
+            app_id: Azure AD app ID to check
             
-            # If not found as service principal, try as user
+        Returns:
+            Dictionary with user principal info or None if not found
+        """
+        self.logger.info(f"Checking if App ID is a User Principal: {app_id}")
+        try:
             result = subprocess.run(
                 ['az', 'ad', 'user', 'show', '--id', app_id],
                 capture_output=True,
                 text=True,
-                timeout=10
+                check=True,
+                shell=True
             )
             
             if result.returncode == 0:
                 user_info = json.loads(result.stdout)
-                self.logger.info(f"App ID {app_id} is a User Principal")
+                self.logger.info(
+                    f"✓ App ID {app_id} is a User Principal: "
+                    f"{user_info.get('displayName', 'N/A')}"
+                )
                 return {
                     'type': 'user',
                     'display_name': user_info.get('displayName', 'N/A'),
@@ -188,25 +301,14 @@ class InputHandler:
                     'user_principal_name': user_info.get('userPrincipalName', 'N/A'),
                     'details': user_info
                 }
-            
-            # If neither worked, it's unknown
-            self.logger.warning(f"Could not determine type for app ID {app_id}")
-            return {
-                'type': 'unknown',
-                'display_name': 'Unknown',
-                'object_id': 'Unknown',
-                'error': result.stderr
-            }
-            
         except subprocess.TimeoutExpired:
-            self.logger.error(f"Timeout while checking app ID type for {app_id}")
-            return None
+            self.logger.warning(f"Timeout checking user principal for: {app_id}")
         except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse Azure CLI response: {e}")
-            return None
+            self.logger.debug(f"Invalid JSON from user principal check: {e}")
         except Exception as e:
-            self.logger.error(f"Error checking app ID type: {e}")
-            return None
+            self.logger.debug(f"Not a user principal: {e}")
+        
+        return None
     
     def prepare_headers(self):
         """
@@ -220,7 +322,7 @@ class InputHandler:
             dict: Headers to be used in HTTP requests.
         """
         # Check if token is already provided via environment variable
-        token = os.getenv('ADME_BEARER_TOKEN')
+        token = os.getenv('ADME_BEARER_TOKEN', None)
         
         if token:
             self.logger.info("Using provided token from ADME_BEARER_TOKEN environment variable")

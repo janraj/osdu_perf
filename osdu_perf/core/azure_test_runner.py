@@ -225,16 +225,16 @@ class AzureLoadTestRunner:
             bool: True if resource group exists or was created successfully
         """
         try:
-            print(f"Checking if resource group '{self.resource_group_name}' exists...")
+            self.logger.info(f"Checking if resource group '{self.resource_group_name}' exists...")
             
             # Check if resource group exists
             try:
                 rg = self.resource_client.resource_groups.get(self.resource_group_name)
-                print(f"Resource group '{self.resource_group_name}' already exists")
+                self.logger.info(f"Resource group '{self.resource_group_name}' already exists")
                 return True
             except Exception as e:
                 # Resource group doesn't exist, create it
-                print(f"Creating resource group '{self.resource_group_name}'...  and error is {e}")
+                self.logger.info(f"Creating resource group '{self.resource_group_name}'... (error checking existence: {e})")
 
                 rg_params = {
                     'location': self.location,
@@ -318,7 +318,7 @@ class AzureLoadTestRunner:
                    users: int = 10,
                    spawn_rate: int = 2,
                    run_time: str = "60s",
-                   engine_instances: int = 1, tags: str = "") -> Optional[Dict[str, Any]]:
+                   engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -382,6 +382,9 @@ class AzureLoadTestRunner:
             environment_variables["OSDU_TENANT_ID"] = partition if partition else "opendes"
             environment_variables["TEST_RUN_ID_NAME"] = self.test_runid_name
             environment_variables["LOCUST_TAGS"] = tags 
+            environment_variables["ADME_BEARER_TOKEN"] = adme_token  # Pass the token for authentication 
+            environment_variables["LAST_TEST_TIME_STAMP"] = str(int(time.time()))  # Unique test iteration based on timestamp
+
             
             body = {
                 "displayName": display_name,
@@ -511,52 +514,7 @@ class AzureLoadTestRunner:
                     'fileType': file_type,
                     'result': result
                 })
-                '''
-                # Upload file using direct data plane API working code commenting out for now
-                url = f"{data_plane_url}/tests/{test_name}/files/{file_path.name}?api-version={self.api_version}&fileType={file_type}"
                 
-                headers = {
-                    "Authorization": f"Bearer {data_plane_token}",
-                    "Content-Type": "application/octet-stream"
-                }
-                
-                # Read and upload file content
-                with open(file_path, 'rb') as f:
-                    file_content = f.read()
-                
-                # Create urllib request for file upload
-                req = urllib.request.Request(url, data=file_content, method='PUT')
-                
-                # Add headers
-                for key, value in headers.items():
-                    req.add_header(key, value)
-                
-                try:
-                    with urllib.request.urlopen(req, timeout=60) as response:
-                        response_obj = UrllibResponse(response.getcode(), response.read(), dict(response.headers))
-                except urllib.error.HTTPError as e:
-                    error_content = e.read() if hasattr(e, 'read') else b''
-                    response_obj = UrllibResponse(e.code, error_content, dict(e.headers) if hasattr(e, 'headers') else {})
-                
-                response = response_obj
-                
-                # Debug response
-                self.logger.info(f"File upload response status for {file_path.name}: {response.status_code}")
-                
-                if response.status_code not in [200, 201]:
-                    self.logger.error(f"Response headers: {dict(response.headers)}")
-                    self.logger.error(f"Response text: {response.text}")
-                    continue
-                
-                response.raise_for_status()
-                
-                file_info = {
-                    "fileName": file_path.name,
-                    "fileType": file_type,
-                    "uploadStatus": "success"
-                }
-                uploaded_files.append(file_info)
-                '''
                 self.logger.info(f"Successfully uploaded: {file_path.name} as {file_type}")
                 
         except Exception as e:
@@ -572,7 +530,7 @@ class AzureLoadTestRunner:
                         spawn_rate: int = 2,
                         run_time: str = "60s",
                         engine_instances: int = 1,
-                        tags: str = "") -> bool:
+                        tags: str = "", adme_token: Optional[str] = None) -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         
@@ -600,6 +558,7 @@ class AzureLoadTestRunner:
             
             # Search patterns for performance test files and locustfile
             search_patterns = [
+                os.path.join(test_directory, "perf_*.json"),
                 os.path.join(test_directory, "perf_*_test.py"),
                 os.path.join(test_directory, "**", "perf_*_test.py"),
                 os.path.join(test_directory, "perf_*test.py"),
@@ -703,7 +662,8 @@ class AzureLoadTestRunner:
                 spawn_rate=spawn_rate,
                 run_time=run_time,
                 engine_instances=engine_instances,
-                tags=tags
+                tags=tags,
+                adme_token=adme_token
             )
             if not test_result:
                 self.logger.error("Failed to create test in Azure Load Test resource")

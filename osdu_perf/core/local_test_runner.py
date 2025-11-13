@@ -242,6 +242,10 @@ class LocalTestRunner:
         test_run_id = f"{test_run_id_prefix}_{timestamp}"
         
         self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {tags}")
+
+        if token is None:
+            #need to make it better.
+            token = self._input_handler.get_token_for_control_path(app_id)
         
         # Create and return the configuration data class
         config = TestConfiguration(

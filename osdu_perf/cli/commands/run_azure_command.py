@@ -49,7 +49,8 @@ class AzureLoadTestCommand(Command):
                 spawn_rate=config['spawn_rate'],
                 run_time=config['run_time'],
                 engine_instances=config['engine_instances'],
-                tags=config['tags']
+                tags=config['tags'],
+                adme_token = config['osdu_adme_token']
             )
             
             if setup_success:
@@ -79,6 +80,9 @@ class AzureLoadTestCommand(Command):
         sku = getattr(args, 'sku', None) or input_handler.get_osdu_sku()
         version = getattr(args, 'version', None) or input_handler.get_osdu_version()
         
+        if osdu_adme_token is None:
+            osdu_adme_token = input_handler.get_token_for_control_path(app_id)
+
         # Get Azure Load Test configuration from config with CLI overrides
         subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
         resource_group = args.resource_group or input_handler.get_azure_resource_group()
@@ -133,9 +137,6 @@ class AzureLoadTestCommand(Command):
             sys.exit(1)
         if not config['partition']:
             self.logger.error("❌ OSDU partition is required (--partition or config.yaml)")
-            sys.exit(1)
-        if not config['osdu_adme_token']:
-            self.logger.error("❌ OSDU token is required (--token or config.yaml)")
             sys.exit(1)
             
         # Validate required Azure Load Test parameters
