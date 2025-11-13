@@ -85,7 +85,7 @@ class TestLocalTestCommand:
         assert result is False
         self.logger_mock.error.assert_called_once()
     
-    @patch('osdu_perf.core.local_test_runner.LocalTestRunner')
+    @patch('osdu_perf.operations.local_test_runner.LocalTestRunner')
     def test_execute_success(self, mock_runner_class):
         """Test successful execution of local test command."""
         args = Mock()
@@ -111,7 +111,7 @@ class TestLocalTestCommand:
         result = self.local_command.execute(args)
         assert result == 1
     
-    @patch('osdu_perf.core.local_test_runner.LocalTestRunner')
+    @patch('osdu_perf.operations.local_test_runner.LocalTestRunner')
     def test_execute_handles_exception(self, mock_runner_class):
         """Test that execute handles exceptions properly."""
         args = Mock()
@@ -125,7 +125,7 @@ class TestLocalTestCommand:
             mock_handle.assert_called_once()
             assert result == 1
     
-    @patch('osdu_perf.core.local_test_runner.LocalTestRunner')
+    @patch('osdu_perf.operations.local_test_runner.LocalTestRunner')
     def test_execute_runner_failure(self, mock_runner_class):
         """Test execute when runner returns failure code."""
         args = Mock()

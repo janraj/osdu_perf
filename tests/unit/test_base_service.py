@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import Mock, patch
 from abc import ABC
 
-from osdu_perf.core.base_service import BaseService
+from osdu_perf.operations.base_service import BaseService
 
 
 class TestBaseService:

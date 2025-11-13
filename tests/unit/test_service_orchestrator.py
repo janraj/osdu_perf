@@ -6,8 +6,8 @@ import shutil
 from unittest.mock import Mock, patch, MagicMock
 import importlib.util
 
-from osdu_perf.core.service_orchestrator import ServiceOrchestrator
-from osdu_perf.core.base_service import BaseService
+from osdu_perf.operations.service_orchestrator import ServiceOrchestrator
+from osdu_perf.operations.base_service import BaseService
 
 
 class TestServiceOrchestrator:
@@ -168,7 +168,7 @@ class TestServiceOrchestrator:
         """Test register_service with valid test files."""
         # Create a test file with a service class
         test_content = '''
-from osdu_perf.core.base_service import BaseService
+from osdu_perf.operations.base_service import BaseService
 
 class StoragePerformanceTest(BaseService):
     def __init__(self, client=None):

@@ -4,7 +4,7 @@ Test cases for OSDU Entitlement Management Module.
 import pytest
 import json
 from unittest.mock import Mock, patch, MagicMock
-from osdu_perf.core.entitlement import Entitlement
+from osdu_perf.operations.entitlement import Entitlement
 
 
 class TestEntitlement:
@@ -48,7 +48,7 @@ class TestEntitlement:
         }
         assert self.entitlement.headers == expected_headers
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_success(self, mock_post):
         """Test successful user addition to group."""
         # Setup mock response
@@ -80,7 +80,7 @@ class TestEntitlement:
         assert "Successfully added user" in result['message']
         assert result['response_text'] == '{"status": "success"}'
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_conflict(self, mock_post):
         """Test user addition with conflict (409 status)."""
         # Setup mock response for conflict
@@ -99,7 +99,7 @@ class TestEntitlement:
         assert "Entitlement already exists" in result['message']
         assert result['response_text'] == '{"error": "User already exists"}'
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_failure(self, mock_post):
         """Test user addition failure."""
         # Setup mock response for failure
@@ -118,7 +118,7 @@ class TestEntitlement:
         assert "Failed to add user" in result['message']
         assert result['response_text'] == '{"error": "Internal server error"}'
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_exception(self, mock_post):
         """Test user addition with exception."""
         # Setup mock to raise exception
@@ -134,7 +134,7 @@ class TestEntitlement:
         assert "Error adding user" in result['message']
         assert "Network error" in result['response_text']
     
-    @patch('osdu_perf.core.entitlement.requests.get')
+    @patch('osdu_perf.operations.entitlement.requests.get')
     def test_getgroups_success(self, mock_get, capsys):
         """Test successful groups retrieval."""
         # Setup mock response
@@ -163,7 +163,7 @@ class TestEntitlement:
         assert "getGroupsStatusCode: 200" in captured.out
         assert "For User: test-user" in captured.out
     
-    @patch('osdu_perf.core.entitlement.requests.get')
+    @patch('osdu_perf.operations.entitlement.requests.get')
     def test_getgroups_exception(self, mock_get, capsys):
         """Test groups retrieval with exception."""
         # Setup mock to raise exception
@@ -175,7 +175,7 @@ class TestEntitlement:
         captured = capsys.readouterr()
         assert "Error getting groups: Connection error" in captured.out
     
-    @patch('osdu_perf.core.entitlement.requests.get')
+    @patch('osdu_perf.operations.entitlement.requests.get')
     def test_getuserGroup_success(self, mock_get, capsys):
         """Test successful user group retrieval."""
         # Setup mock response
@@ -210,7 +210,7 @@ class TestEntitlement:
         assert "getUserGroupStatusCode: 200" in captured.out
         assert "For User: test-user" in captured.out
     
-    @patch('osdu_perf.core.entitlement.requests.get')
+    @patch('osdu_perf.operations.entitlement.requests.get')
     def test_getuserGroup_exception(self, mock_get, capsys):
         """Test user group retrieval with exception."""
         # Setup mock to raise exception
@@ -358,7 +358,7 @@ class TestEntitlementStatusCodes:
             token="test-token"
         )
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_status_codes_success_range(self, mock_post):
         """Test that 2xx status codes are treated as success."""
         success_codes = [200, 201, 202, 204]
@@ -376,7 +376,7 @@ class TestEntitlementStatusCodes:
             assert result['conflict'] is False
             assert "Successfully added user" in result['message']
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_status_codes_client_errors(self, mock_post):
         """Test that 4xx status codes (except 409) are treated as failures."""
         error_codes = [400, 401, 403, 404, 422]
@@ -394,7 +394,7 @@ class TestEntitlementStatusCodes:
             assert result['conflict'] is False
             assert "Failed to add user" in result['message']
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_status_codes_server_errors(self, mock_post):
         """Test that 5xx status codes are treated as failures."""
         error_codes = [500, 502, 503, 504]
@@ -441,7 +441,7 @@ class TestEntitlementEdgeCases:
             # This should fail because None.rstrip() will raise AttributeError
             Entitlement(None, "partition", "app_id", "token")
     
-    @patch('osdu_perf.core.entitlement.requests.post')
+    @patch('osdu_perf.operations.entitlement.requests.post')
     def test_adduser_with_special_characters(self, mock_post):
         """Test adduser with special characters in group name."""
         mock_response = Mock()
