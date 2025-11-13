@@ -2,13 +2,13 @@
 OSDU Performance Testing Framework - Core Library
 """
 
-from .core.base_service import BaseService
-from .core.service_orchestrator import ServiceOrchestrator
-from .core.input_handler import InputHandler
-from .core.auth import AzureTokenManager
+from .operations.base_service import BaseService
+from .operations.service_orchestrator import ServiceOrchestrator
+from .operations.input_handler import InputHandler
+from .operations.auth import AzureTokenManager
 from .utils.environment import detect_environment
-from .core.init_runner  import InitRunner
-from .client_base.user_base import PerformanceUser
+from .operations.init_runner  import InitRunner
+from .locust_integration.user_base import PerformanceUser
 
 
 __version__ = "1.0.28"
