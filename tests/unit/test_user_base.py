@@ -4,7 +4,7 @@ Test cases for user base performance testing classes.
 import pytest
 import logging
 from unittest.mock import Mock, patch, MagicMock
-from osdu_perf.client_base.user_base import PerformanceUser
+from osdu_perf.locust_integration.user_base import PerformanceUser
 
 
 class TestPerformanceUser:
@@ -24,7 +24,7 @@ class TestPerformanceUser:
         assert hasattr(PerformanceUser, '_kusto_config')
         assert hasattr(PerformanceUser, '_input_handler_instance')
     
-    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    @patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator')
     def test_initialization(self, mock_service_orchestrator):
         """Test PerformanceUser initialization."""
         mock_environment = Mock()
@@ -45,17 +45,17 @@ class TestPerformanceUser:
         logger = PerformanceUser._setup_logging()
         
         assert isinstance(logger, logging.Logger)
-        assert logger.name == 'osdu_perf.client_base.user_base'
+        assert logger.name == 'osdu_perf.locust_integration.user_base'
     
-    @patch('osdu_perf.client_base.user_base.logging.getLogger')
+    @patch('osdu_perf.locust_integration.user_base.logging.getLogger')
     def test_setup_logging_configuration(self, mock_get_logger):
         """Test that _setup_logging configures logger properly."""
         mock_logger = Mock()
         mock_logger.handlers = []  # No existing handlers
         mock_get_logger.return_value = mock_logger
         
-        with patch('osdu_perf.client_base.user_base.logging.StreamHandler') as mock_handler_class:
-            with patch('osdu_perf.client_base.user_base.logging.Formatter') as mock_formatter_class:
+        with patch('osdu_perf.locust_integration.user_base.logging.StreamHandler') as mock_handler_class:
+            with patch('osdu_perf.locust_integration.user_base.logging.Formatter') as mock_formatter_class:
                 mock_handler = Mock()
                 mock_formatter = Mock()
                 mock_handler_class.return_value = mock_handler
@@ -70,7 +70,7 @@ class TestPerformanceUser:
                 mock_logger.setLevel.assert_called_once_with(logging.INFO)
                 assert result is mock_logger
     
-    @patch('osdu_perf.client_base.user_base.logging.getLogger')
+    @patch('osdu_perf.locust_integration.user_base.logging.getLogger')
     def test_setup_logging_existing_handlers(self, mock_get_logger):
         """Test that _setup_logging doesn't reconfigure logger with existing handlers."""
         mock_logger = Mock()
@@ -98,7 +98,7 @@ class TestPerformanceUser:
         
         # Should be shared across instances
         mock_env = Mock()
-        with patch('osdu_perf.client_base.user_base.ServiceOrchestrator'):
+        with patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator'):
             user1 = PerformanceUser(mock_env)
             user2 = PerformanceUser(mock_env)
             
@@ -119,14 +119,14 @@ class TestPerformanceUser:
         
         # Should be shared across instances
         mock_env = Mock()
-        with patch('osdu_perf.client_base.user_base.ServiceOrchestrator'):
+        with patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator'):
             user1 = PerformanceUser(mock_env)
             user2 = PerformanceUser(mock_env)
             
             assert user1._input_handler_instance == test_handler
             assert user2._input_handler_instance == test_handler
     
-    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    @patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator')
     def test_services_list_initialization(self, mock_service_orchestrator):
         """Test that services list is properly initialized."""
         mock_environment = Mock()
@@ -145,7 +145,7 @@ class TestPerformanceUser:
         assert len(user.services) == 1
         assert len(user2.services) == 0
     
-    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    @patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator')
     def test_service_orchestrator_creation(self, mock_service_orchestrator):
         """Test that ServiceOrchestrator is properly created."""
         mock_environment = Mock()
@@ -183,7 +183,7 @@ class TestPerformanceUser:
         # wait_time should be callable (it's a between() function)
         assert callable(PerformanceUser.wait_time)
     
-    @patch('osdu_perf.client_base.user_base.ServiceOrchestrator')
+    @patch('osdu_perf.locust_integration.user_base.ServiceOrchestrator')
     def test_multiple_instance_isolation(self, mock_service_orchestrator):
         """Test that multiple instances are properly isolated."""
         mock_environment = Mock()
@@ -209,13 +209,13 @@ class TestPerformanceUserLogging:
     
     def test_logging_format(self):
         """Test that logging format is correctly configured."""
-        with patch('osdu_perf.client_base.user_base.logging.getLogger') as mock_get_logger:
+        with patch('osdu_perf.locust_integration.user_base.logging.getLogger') as mock_get_logger:
             mock_logger = Mock()
             mock_logger.handlers = []
             mock_get_logger.return_value = mock_logger
             
-            with patch('osdu_perf.client_base.user_base.logging.Formatter') as mock_formatter:
-                with patch('osdu_perf.client_base.user_base.logging.StreamHandler'):
+            with patch('osdu_perf.locust_integration.user_base.logging.Formatter') as mock_formatter:
+                with patch('osdu_perf.locust_integration.user_base.logging.StreamHandler'):
                     PerformanceUser._setup_logging()
                     
                     # Check that formatter was called with correct format
@@ -233,13 +233,13 @@ class TestPerformanceUserLogging:
     
     def test_logging_level(self):
         """Test that logging level is set to INFO."""
-        with patch('osdu_perf.client_base.user_base.logging.getLogger') as mock_get_logger:
+        with patch('osdu_perf.locust_integration.user_base.logging.getLogger') as mock_get_logger:
             mock_logger = Mock()
             mock_logger.handlers = []
             mock_get_logger.return_value = mock_logger
             
-            with patch('osdu_perf.client_base.user_base.logging.StreamHandler'):
-                with patch('osdu_perf.client_base.user_base.logging.Formatter'):
+            with patch('osdu_perf.locust_integration.user_base.logging.StreamHandler'):
+                with patch('osdu_perf.locust_integration.user_base.logging.Formatter'):
                     PerformanceUser._setup_logging()
                     
                     mock_logger.setLevel.assert_called_once_with(logging.INFO)

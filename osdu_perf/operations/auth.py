@@ -1,4 +1,6 @@
+import json
 import logging
+import subprocess
 from abc import ABC, abstractmethod
 from typing import Optional
 from azure.identity import AzureCliCredential, ManagedIdentityCredential
@@ -25,11 +27,31 @@ class AzureCliStrategy(AuthenticationStrategy):
         self.credential = AzureCliCredential()
         self.logger = logging.getLogger(__name__)
         self._cached_tokens = {}
-    
+        self.az_commands = ['az', 'az.exe', 'az.cmd']
+
+    def get_token_v1(self, scope: str= None) -> str:
+        """Get token using Azure CLI credentials using az account get_access_token_command."""
+        self.logger.info(f"Getting CLI token for scope using az account get_access_token_command: {scope}")
+        for az_cmd in self.az_commands:
+            try:
+                result = subprocess.run([az_cmd, 'account', 'get-access-token'], 
+                                      capture_output=True, text=True, check=True, shell=True)
+                break
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+        if result is None:
+            self.logger.error("❌ Azure CLI not found. Please make sure Azure CLI is installed and in PATH")
+        if result.returncode != 0:
+            self.logger.error(f"❌ Azure CLI command failed with return code {result.returncode}")
+        token_info = json.loads(result.stdout)
+        access_token = token_info['accessToken']
+        
+        self.logger.info("✅ Successfully retrieved access token using naive approach")
+        return access_token
     
     def get_token(self, scope: str) -> str:
         """Get token using Azure CLI credentials."""
-        self.logger.info(f"Getting CLI token for scope: {scope}")
+        self.logger.info(f"Getting CLI token for scope : {scope}")
         token = self.get_cached_token(scope)
         if token:
             self.logger.info(f"Using cached token for scope: {scope}")
@@ -44,6 +66,11 @@ class AzureCliStrategy(AuthenticationStrategy):
             return token.token
         except Exception as e:
             self.logger.error(f"Error obtaining token from Azure CLI: {e}")
+            token = self.get_token_v1(scope)
+            if token:
+                self._cached_tokens[scope] = token
+                self.logger.info(f"Obtained new token for scope: {scope} and token is = {token}")
+                return token
             raise
     
     def get_cached_token(self, scope: str) -> str:
@@ -147,7 +174,7 @@ class AzureTokenManager:
         """Get access token using Azure CLI strategy with management scope."""
         # Force CLI strategy for this method
         cli_strategy = AzureCliStrategy()
-        scope = "https://management.core.windows.net/.default"
+        scope = "https://management.operations.windows.net/.default"
         return cli_strategy.get_token(scope)
     
     def mi_get_access_token(self, scope: Optional[str] = None) -> str:

@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 
-from .input_handler import InputHandler
-from ..utils.logger import get_logger
+from ..input_handler import InputHandler
+from ...utils.logger import get_logger
 
 
 @dataclass

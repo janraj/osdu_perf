@@ -37,7 +37,7 @@ class TestCoreImports:
 
     def test_local_test_runner_import(self):
         """Test that LocalTestRunner can be imported."""
-        from osdu_perf.core.local_test_runner import LocalTestRunner
+        from osdu_perf.operations.local_test_runner import LocalTestRunner
         assert LocalTestRunner is not None
 
     def test_command_factory_import(self):
@@ -72,10 +72,12 @@ class TestBasicFunctionality:
 
     def test_local_test_runner_creation(self):
         """Test LocalTestRunner can be created."""
-        from osdu_perf.core.local_test_runner import LocalTestRunner
+        from osdu_perf.operations.local_test_operation import LocalTestRunner
         
         logger = Mock()
-        runner = LocalTestRunner(logger)
+        # Test LocalTestRunner
+        from osdu_perf.operations.local_test_operation import LocalTestRunner
+        runner = LocalTestRunner()
         assert runner.logger == logger
 
     def test_version_command_execution(self):

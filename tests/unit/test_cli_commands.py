@@ -117,7 +117,7 @@ class TestInitCommand:
         assert result is False
         self.logger_mock.error.assert_called_once()
     
-    @patch('osdu_perf.core.init_runner.InitRunner')
+    @patch('osdu_perf.operations.init_runner.InitRunner')
     def test_execute_success(self, mock_init_runner_class):
         """Test successful execution of init command."""
         args = Mock()
@@ -141,7 +141,7 @@ class TestInitCommand:
         result = self.init_command.execute(args)
         assert result == 1
     
-    @patch('osdu_perf.core.init_runner.InitRunner')
+    @patch('osdu_perf.operations.init_runner.InitRunner')
     def test_execute_handles_exception(self, mock_init_runner_class):
         """Test that execute handles exceptions properly."""
         args = Mock()

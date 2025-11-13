@@ -1,7 +1,7 @@
 """Shared test fixtures for osdu_perf tests."""
 import pytest
 from unittest.mock import Mock, MagicMock
-from azure.core.credentials import AccessToken
+from azure.operations.credentials import AccessToken
 import time
 
 

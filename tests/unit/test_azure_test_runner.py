@@ -16,7 +16,7 @@ from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.loadtesting import LoadTestMgmtClient
 from azure.developer.loadtesting import LoadTestAdministrationClient, LoadTestRunClient
 
-from osdu_perf.core.azure_test_runner import AzureLoadTestRunner, UrllibResponse
+from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner, UrllibResponse
 
 
 class TestUrllibResponse:
@@ -88,19 +88,19 @@ class TestAzureLoadTestRunner:
     @pytest.fixture
     def mock_credential(self):
         """Mock Azure CLI credential."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential') as mock:
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential') as mock:
             yield mock.return_value
     
     @pytest.fixture
     def mock_resource_client(self):
         """Mock Azure Resource Management Client."""
-        with patch('osdu_perf.core.azure_test_runner.ResourceManagementClient') as mock:
+        with patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient') as mock:
             yield mock.return_value
     
     @pytest.fixture
     def mock_loadtest_mgmt_client(self):
         """Mock Azure Load Test Management Client."""
-        with patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient') as mock:
+        with patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient') as mock:
             yield mock.return_value
     
     @pytest.fixture
@@ -191,7 +191,7 @@ class TestAzureLoadTestRunner:
     
     def test_initialize_credential_success(self, azure_runner):
         """Test successful credential initialization."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential') as mock_cred:
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential') as mock_cred:
             mock_instance = Mock()
             mock_cred.return_value = mock_instance
             
@@ -202,7 +202,7 @@ class TestAzureLoadTestRunner:
     
     def test_initialize_credential_failure(self, azure_runner):
         """Test credential initialization failure."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential') as mock_cred:
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential') as mock_cred:
             mock_cred.side_effect = Exception("Auth failed")
             
             with pytest.raises(Exception) as exc_info:
@@ -221,7 +221,7 @@ class TestAzureLoadTestRunner:
     
     def test_init_clients_failure(self, azure_runner):
         """Test Azure SDK clients initialization failure."""
-        with patch('osdu_perf.core.azure_test_runner.ResourceManagementClient') as mock_rmc:
+        with patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient') as mock_rmc:
             mock_rmc.side_effect = Exception("Client init failed")
             
             with pytest.raises(Exception) as exc_info:
@@ -234,8 +234,8 @@ class TestAzureLoadTestRunner:
         data_plane_uri = "https://test-loadtest.eastus.test.azure.com"
         principal_id = "test-principal-id"
         
-        with patch('osdu_perf.core.azure_test_runner.LoadTestAdministrationClient') as mock_admin, \
-             patch('osdu_perf.core.azure_test_runner.LoadTestRunClient') as mock_run:
+        with patch('osdu_perf.operations.azure_test_runner.LoadTestAdministrationClient') as mock_admin, \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestRunClient') as mock_run:
             
             azure_runner._init_data_plane_client(data_plane_uri, principal_id)
             
@@ -256,8 +256,8 @@ class TestAzureLoadTestRunner:
         principal_id = "test-principal-id"
         expected_uri = "https://test-loadtest.eastus.test.azure.com"
         
-        with patch('osdu_perf.core.azure_test_runner.LoadTestAdministrationClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestRunClient'):
+        with patch('osdu_perf.operations.azure_test_runner.LoadTestAdministrationClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestRunClient'):
             
             azure_runner._init_data_plane_client(data_plane_uri, principal_id)
             
@@ -272,7 +272,7 @@ class TestAzureLoadTestRunner:
     
     def test_init_data_plane_client_failure(self, azure_runner):
         """Test data plane client initialization failure."""
-        with patch('osdu_perf.core.azure_test_runner.LoadTestAdministrationClient') as mock_admin:
+        with patch('osdu_perf.operations.azure_test_runner.LoadTestAdministrationClient') as mock_admin:
             mock_admin.side_effect = Exception("Data plane init failed")
             
             with pytest.raises(Exception) as exc_info:
@@ -287,9 +287,9 @@ class TestAzureLoadTestRunnerResourceManagement:
     @pytest.fixture
     def azure_runner(self):
         """Create AzureLoadTestRunner instance with mocked dependencies."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient') as mock_rmc, \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient') as mock_rmc, \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -346,9 +346,9 @@ class TestAzureLoadTestRunnerTokenManagement:
     @pytest.fixture
     def azure_runner(self):
         """Create AzureLoadTestRunner instance with mocked dependencies."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential') as mock_cred, \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential') as mock_cred, \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -403,9 +403,9 @@ class TestAzureLoadTestRunnerFileOperations:
     @pytest.fixture
     def azure_runner(self):
         """Create AzureLoadTestRunner instance with mocked dependencies."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -450,7 +450,7 @@ class TestAzureLoadTestRunnerFileOperations:
         test_files = ["test.py"]
         
         with patch.object(azure_runner, 'get_data_plane_token') as mock_token, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
              patch('pathlib.Path.exists', return_value=True):
             
             mock_token.return_value = "test-token"
@@ -467,9 +467,9 @@ class TestAzureLoadTestRunnerTestExecution:
     @pytest.fixture
     def azure_runner(self):
         """Create AzureLoadTestRunner instance with mocked dependencies."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -482,7 +482,7 @@ class TestAzureLoadTestRunnerTestExecution:
     def test_wait_for_test_validation_success(self, azure_runner):
         """Test successful test validation waiting."""
         with patch.object(azure_runner, 'get_data_plane_token') as mock_token, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
              patch('time.sleep'):
             
             mock_token.return_value = "test-token"
@@ -499,8 +499,8 @@ class TestAzureLoadTestRunnerTestExecution:
     
     def test_wait_for_test_validation_failure(self, azure_runner):
         """Test test validation failure."""
-        with patch('osdu_perf.core.azure_test_runner.urllib.request.Request') as mock_request, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
+        with patch('osdu_perf.operations.azure_test_runner.urllib.request.Request') as mock_request, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
              patch('time.sleep'):
             
             # Mock validation failure response
@@ -516,8 +516,8 @@ class TestAzureLoadTestRunnerTestExecution:
     
     def test_wait_for_test_validation_timeout(self, azure_runner):
         """Test test validation timeout."""
-        with patch('osdu_perf.core.azure_test_runner.urllib.request.Request') as mock_request, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
+        with patch('osdu_perf.operations.azure_test_runner.urllib.request.Request') as mock_request, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen, \
              patch('time.sleep'), \
              patch('time.time') as mock_time:
             
@@ -555,7 +555,7 @@ class TestAzureLoadTestRunnerTestExecution:
     def test_run_test_failure(self, azure_runner):
         """Test test run failure."""
         with patch.object(azure_runner, 'get_data_plane_token') as mock_token, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
             
             mock_token.return_value = "test-token"
             mock_urlopen.side_effect = Exception("Test run failed")
@@ -571,9 +571,9 @@ class TestAzureLoadTestRunnerEntitlements:
     @pytest.fixture
     def azure_runner(self):
         """Create AzureLoadTestRunner instance with mocked dependencies."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -586,8 +586,8 @@ class TestAzureLoadTestRunnerEntitlements:
     def test_get_app_id_from_principal_id_success(self, azure_runner):
         """Test successful app ID retrieval."""
         with patch.object(azure_runner, '_credential') as mock_credential, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.Request') as mock_request, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.Request') as mock_request, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
             
             # Mock token
             mock_token = Mock()
@@ -613,8 +613,8 @@ class TestAzureLoadTestRunnerEntitlements:
     def test_get_app_id_from_principal_id_not_found(self, azure_runner):
         """Test app ID retrieval when no app found."""
         with patch.object(azure_runner, '_credential') as mock_credential, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.Request') as mock_request, \
-             patch('osdu_perf.core.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.Request') as mock_request, \
+             patch('osdu_perf.operations.azure_test_runner.urllib.request.urlopen') as mock_urlopen:
             
             # Mock token
             mock_token = Mock()
@@ -648,7 +648,7 @@ class TestAzureLoadTestRunnerEntitlements:
         azure_runner.principal_id = "test-principal-id"
         
         with patch.object(azure_runner, 'get_app_id_from_principal_id') as mock_get_app_id, \
-             patch('osdu_perf.core.entitlement.Entitlement') as mock_entitlement_class:
+             patch('osdu_perf.operations.entitlement.Entitlement') as mock_entitlement_class:
             
             mock_get_app_id.return_value = "test-app-id"
             mock_entitlement = Mock()
@@ -689,7 +689,7 @@ class TestAzureLoadTestRunnerEntitlements:
         azure_runner.principal_id = "test-principal-id"
         
         with patch.object(azure_runner, 'get_app_id_from_principal_id') as mock_get_app_id, \
-             patch('osdu_perf.core.entitlement.Entitlement') as mock_entitlement_class:
+             patch('osdu_perf.operations.entitlement.Entitlement') as mock_entitlement_class:
             
             mock_get_app_id.return_value = "test-app-id"
             mock_entitlement = Mock()
@@ -717,9 +717,9 @@ class TestAzureLoadTestRunnerEdgeCases:
     
     def test_initialization_with_empty_subscription_id(self):
         """Test initialization with empty subscription ID."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="",
@@ -731,9 +731,9 @@ class TestAzureLoadTestRunnerEdgeCases:
     
     def test_initialization_with_none_tags(self):
         """Test initialization with None tags."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner = AzureLoadTestRunner(
                 subscription_id="test-sub-id",
@@ -747,9 +747,9 @@ class TestAzureLoadTestRunnerEdgeCases:
     
     def test_multiple_initialization_calls(self):
         """Test that multiple initialization calls work correctly."""
-        with patch('osdu_perf.core.azure_test_runner.AzureCliCredential'), \
-             patch('osdu_perf.core.azure_test_runner.ResourceManagementClient'), \
-             patch('osdu_perf.core.azure_test_runner.LoadTestMgmtClient'):
+        with patch('osdu_perf.operations.azure_test_runner.AzureCliCredential'), \
+             patch('osdu_perf.operations.azure_test_runner.ResourceManagementClient'), \
+             patch('osdu_perf.operations.azure_test_runner.LoadTestMgmtClient'):
             
             runner1 = AzureLoadTestRunner(
                 subscription_id="test-sub-id-1",

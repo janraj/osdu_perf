@@ -17,7 +17,7 @@ class InitCommand(Command):
             if not self.validate_args(args):
                 return 1
                 
-            from osdu_perf.core.init_runner import InitRunner
+            from osdu_perf.operations.init_operation import InitRunner
             init_runner = InitRunner()
             init_runner.init_project(args.service_name, args.force)
             return 0

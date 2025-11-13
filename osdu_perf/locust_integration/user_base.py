@@ -1,6 +1,7 @@
 # osdu_perf/locust/user_base.py
 from locust import HttpUser, task, events, between
-from ..core import ServiceOrchestrator, InputHandler
+from ..operations.service_orchestrator import ServiceOrchestrator
+from ..operations.input_handler import   InputHandler
 import logging
 from azure.kusto.ingest import QueuedIngestClient, IngestionProperties
 from azure.kusto.data import KustoConnectionStringBuilder
