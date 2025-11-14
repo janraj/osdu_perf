@@ -14,7 +14,7 @@ from datetime import datetime
 import io
 import csv
 
-class PerformanceUser(HttpUser):
+class PerformanceUser():
     """
     Base user class for performance testing with automatic service discovery.
     Inherit from this class in your locustfile.
@@ -44,23 +44,17 @@ class PerformanceUser(HttpUser):
     
 
     def __init__(self, environment):
-        super().__init__(environment)
-        self.service_orchestrator = ServiceOrchestrator()
+        self.environment = environment
         self.input_handler = None
-        self.services = []
         self.logger = self._setup_logging()
-    
-    def on_start(self):
-        """Initialize services and input handling"""
+
         self.logger.info(f"PerformanceUser on_start called environment is {self.environment}")
         self.input_handler = InputHandler(self.environment)
         
         # Store config at class level for access in static methods
         PerformanceUser._kusto_config = self.input_handler.get_kusto_config()
         PerformanceUser._input_handler_instance = self.input_handler      
-        self.service_orchestrator.register_service(self.client)
-        self.services = self.service_orchestrator.get_services()
-
+ 
     def get_host(self):
         """Return the host URL for this user"""
         return self.input_handler.base_url
@@ -112,57 +106,7 @@ class PerformanceUser(HttpUser):
                 self.logger.error(f"[PerformanceUser] {method} {url} failed with status code {response.status_code}")   
                 response.failure(f"{method} {url} failed with {response.status_code}")
             self.logger.debug(f"[PerformanceUser] {method} {url} succeeded with status code {response.status_code}")
-            return response
-        
-    '''
-    @task
-    def execute_services(self):
-        """Execute all registered services"""
-        for service in self.services:
-            # make a per-service copy of the base headers so Authorization doesn't leak between services
-            header = dict(self.input_handler.header)
-            if hasattr(service, 'provide_explicit_token') and callable(service.provide_explicit_token):
-                self.logger.info("[PerformanceUser][provide_explicit_token] Checking any explicit token provided or not")
-                try:
-                    token = service.provide_explicit_token()
-                    # if subclass implemented the method but returned nothing (e.g. `pass` -> None), skip setting Authorization
-                    if token:
-                        header['Authorization'] = f"Bearer {token}"
-                except Exception as e:
-                    self.logger.error(f"Providing explicit token failed: {e}")
-   
-            if hasattr(service, 'prehook') and callable(service.prehook):
-                try:
-                    service.prehook(
-                        headers=header, 
-                        partition=self.input_handler.partition,
-                        base_url=self.input_handler.base_url
-                    )
-                except Exception as e:
-                    self.logger.error(f"Service prehook failed: {e}")
-                    continue  # Skip this service if prehook fails
-   
-
-            if hasattr(service, 'execute') and callable(service.execute):
-                try:
-                    service.execute(
-                        headers=header,
-                        partition=self.input_handler.partition,
-                        base_url=self.input_handler.base_url
-                    )
-                except Exception as e:
-                    self.logger.error(f"Service execution failed: {e}")
-
-            if hasattr(service, 'posthook') and callable(service.posthook):
-                try:
-                    service.posthook(
-                        headers=header,
-                        partition=self.input_handler.partition,
-                        base_url=self.input_handler.base_url
-                    )
-                except Exception as e:
-                    self.logger.error(f"Service posthook failed: {e}")
-    '''
+  
     @staticmethod
     def get_ADME_name(host):
         """Return the ADME name for this user class"""
