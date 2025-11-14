@@ -124,12 +124,12 @@ osdu_perf run azure_load_test --config config.yaml
 ```
 
 ## 📝 Writing Performance Tests
-- Use locust documentation to write tests 
-- ADME Token, Partition, APP ID and headers are passed to your tests
-- Headers contains correlation ID is added. You can add more corelation ID test specific. Avoid removing existing as that helps to get metrcis. 
-- Azure Load test to ADME entilment is crated before running the tests. 
-- Metrcis are collected at the end of run and send to the kusto server. 
-- All new files must start with perf_*. Those files will be uploadd to azure load test to run. 
+- Use the Locust documentation to write tests.
+- ADME token, partition, app ID, and headers are passed to your tests.
+- Headers contain a correlation ID by default. You can add more test-specific correlation IDs, but avoid removing the existing one as it helps collect metrics.
+- Azure Load Test to ADME entitlement is created before running the tests.
+- Metrics are collected at the end of the run and sent to the Kusto server.
+- All new files must start with perf_*. These files will be uploaded to Azure Load Test to run.
 
 ### Simple API-Based Approach
 
@@ -413,7 +413,8 @@ class OSDUUser(HttpUser):
     @task(1)
     def check_service_health(self):
         # *** Simple and clean consumer call ***
-        self.get("/api/{service_name}/v2/liveness_check")
+        response = self.client.get("/api/storage/v2/liveness_check", headers=self.headers)
+        self.logger.info(f"Health check status: ")
 
 '''
         output_path.write_text(template, encoding='utf-8')
