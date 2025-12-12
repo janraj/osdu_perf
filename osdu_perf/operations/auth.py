@@ -61,7 +61,7 @@ class AzureCliStrategy(AuthenticationStrategy):
 
             if token:
                 self._cached_tokens[scope] = token.token
-                self.logger.info(f"Obtained new token for scope: {scope} and token is = {token.token}")
+                self.logger.info(f"Obtained new token for scope: {scope}")
 
             return token.token
         except Exception as e:
@@ -69,7 +69,7 @@ class AzureCliStrategy(AuthenticationStrategy):
             token = self.get_token_v1(scope)
             if token:
                 self._cached_tokens[scope] = token
-                self.logger.info(f"Obtained new token for scope: {scope} and token is = {token}")
+                self.logger.info(f"Obtained new token for scope: {scope}")
                 return token
             raise
     
