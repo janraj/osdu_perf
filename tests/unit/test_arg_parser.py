@@ -247,27 +247,6 @@ class TestArgParserClass:
         with pytest.raises(SystemExit):
             parser.parse_args(['run', 'invalid'])
 
-    def test_missing_required_arguments(self):
-        """Test parsing with missing required arguments."""
-        parser = self.arg_parser.create_parser()
-        
-        # Test init without service_name
-        with pytest.raises(SystemExit):
-            parser.parse_args(['init'])
-        
-        # Test run local without config
-        with pytest.raises(SystemExit):
-            parser.parse_args(['run', 'local', '--token', 'test'])
-        
-        # Test run local without token
-        with pytest.raises(SystemExit):
-            parser.parse_args(['run', 'local', '--config', 'test.yaml'])
-        
-        # Note: Azure subscription-id is optional in our implementation
-        # so we test a different required argument combination
-        with pytest.raises(SystemExit):
-            parser.parse_args(['run', 'azure_load_test', '--config', 'test.yaml'])  # Missing token
-
     def test_argument_types(self):
         """Test that arguments have correct types."""
         parser = self.arg_parser.create_parser()

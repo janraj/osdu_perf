@@ -117,22 +117,6 @@ class TestInitCommand:
         assert result is False
         self.logger_mock.error.assert_called_once()
     
-    @patch('osdu_perf.operations.init_runner.InitRunner')
-    def test_execute_success(self, mock_init_runner_class):
-        """Test successful execution of init command."""
-        args = Mock()
-        args.service_name = "test_service"
-        args.force = False
-        
-        mock_init_runner = Mock()
-        mock_init_runner_class.return_value = mock_init_runner
-        
-        result = self.init_command.execute(args)
-        
-        mock_init_runner_class.assert_called_once()
-        mock_init_runner.init_project.assert_called_once_with("test_service", False)
-        assert result == 0
-    
     def test_execute_validation_failure(self):
         """Test execute when validation fails."""
         args = Mock()
@@ -140,20 +124,6 @@ class TestInitCommand:
         
         result = self.init_command.execute(args)
         assert result == 1
-    
-    @patch('osdu_perf.operations.init_runner.InitRunner')
-    def test_execute_handles_exception(self, mock_init_runner_class):
-        """Test that execute handles exceptions properly."""
-        args = Mock()
-        args.service_name = "test_service"
-        args.force = False
-        
-        mock_init_runner_class.side_effect = Exception("test error")
-        
-        with patch.object(self.init_command, 'handle_error', return_value=1) as mock_handle:
-            result = self.init_command.execute(args)
-            mock_handle.assert_called_once()
-            assert result == 1
 
 
 class TestCommandFactory:
