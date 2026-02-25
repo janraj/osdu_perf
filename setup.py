@@ -24,10 +24,16 @@ setup(
     packages=find_packages(exclude=["tests", "tests.*", "osdu_perf.perf_tests"]),
     install_requires=[
         "locust>=2.0.0",
-        "azure-identity>=1.12.0",
-        "azure-core>=1.26.0",
+        "azure-identity>=1.13.0",
+        "azure-core>=1.28.0",
+        "azure-mgmt-core>=1.4.0",
+        "azure-mgmt-resource>=23.0.0",
+        "azure-mgmt-loadtesting>=1.0.0",
+        "azure-developer-loadtesting>=1.0.0",
         "requests>=2.28.0",
         "pyyaml>=6.0",
+        "azure-kusto-data>=5.0.0",
+        "azure-kusto-ingest>=5.0.0",
     ],
     extras_require={
         "dev": [
