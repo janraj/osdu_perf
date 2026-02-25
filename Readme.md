@@ -2,7 +2,9 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PyPI version](https://img.shields.io/pypi/v/osdu-perf.svg)](https://pypi.org/project/osdu-perf/)
+[![PyPI version](https://img.shields.io/pypi/v/osdu_perf.svg)](https://pypi.org/project/osdu_perf/)
+[![PR Gate](https://github.com/janraj/osdu_perf/actions/workflows/pr-gate.yml/badge.svg)](https://github.com/janraj/osdu_perf/actions/workflows/pr-gate.yml)
+[![Publish to PyPI](https://github.com/janraj/osdu_perf/actions/workflows/publish.yml/badge.svg)](https://github.com/janraj/osdu_perf/actions/workflows/publish.yml)
 
 A comprehensive Python framework for performance testing OSDU (Open Subsurface Data Universe) services. Features automatic test discovery, Azure authentication, Locust integration, and both local and cloud-based load testing capabilities with intelligent service orchestration.
 
