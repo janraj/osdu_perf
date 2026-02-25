@@ -5,8 +5,14 @@ __pycache__/
 
 # Test, coverage, and tool caches
 .coverage
+.coverage.*
 .pytest_cache/
 .mypy_cache/
+htmlcov/
+
+# Lint/type/checkpoint caches
+.ruff_cache/
+.ipynb_checkpoints/
 
 # Build and packaging artifacts
 dist/
