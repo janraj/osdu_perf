@@ -23,6 +23,31 @@ class AzureLoadTestExecutor:
         """
         self.loadtest_run_client = loadtest_run_client
         self.logger = logger or logging.getLogger(__name__)
+
+    def _normalize_result(self, result: Any) -> Dict[str, Any]:
+        """Convert SDK responses/models into a dictionary for consistent access."""
+        if result is None:
+            return {}
+
+        if isinstance(result, dict):
+            return result
+
+        # Azure SDK models commonly expose one of these helpers.
+        for method_name in ("as_dict", "to_dict"):
+            method = getattr(result, method_name, None)
+            if callable(method):
+                try:
+                    converted = method()
+                    if isinstance(converted, dict):
+                        return converted
+                except Exception:
+                    pass
+
+        try:
+            values = vars(result)
+            return {k: v for k, v in values.items() if not k.startswith("_")}
+        except Exception:
+            return {}
     
     def run_test(
         self,
@@ -68,17 +93,25 @@ class AzureLoadTestExecutor:
             test_run_config = {
                 'testId': test_name,
                 'displayName': display_name,
-                'description': f"Load test run created by osdu_perf framework"
+                'description': f"Load test run created by osdu_perf framework",
+                "autoStop": {
+                    "errorPercentage": 100,
+                    "timeWindow": 60
+                }
             }
             
             # Start the test run
-            result = self.loadtest_run_client.begin_test_run(
+            poller = self.loadtest_run_client.begin_test_run(
                 test_run_id=display_name,
                 body=test_run_config
             )
 
             self.logger.info(f"✅ Test run '{test_name}' started successfully with display name '{display_name}'")
-            return result
+            return {
+                "testRunId": display_name,
+                "displayName": display_name,
+                "operationStatus": "completed" if getattr(poller, "done", lambda: False)() else "running"
+            }
             
         except Exception as e:
             self.logger.error(f"❌ Error running test '{test_name}': {e}")
@@ -100,8 +133,9 @@ class AzureLoadTestExecutor:
         try:
             self.logger.info(f"Getting status for test run '{test_run_id}'...")
             
-            result = self.loadtest_run_client.get_test_run(test_run_id=test_run_id)
-            
+            raw_result = self.loadtest_run_client.get_test_run(test_run_id=test_run_id)
+            result = self._normalize_result(raw_result)
+
             status = result.get('status', 'UNKNOWN')
             self.logger.info(f"Test run status: {status}")
             
@@ -205,7 +239,8 @@ class AzureLoadTestExecutor:
         try:
             self.logger.info(f"Getting results for test run '{test_run_id}'...")
             
-            result = self.loadtest_run_client.get_test_run(test_run_id=test_run_id)
+            raw_result = self.loadtest_run_client.get_test_run(test_run_id=test_run_id)
+            result = self._normalize_result(raw_result)
             
             # Extract key metrics
             if result:

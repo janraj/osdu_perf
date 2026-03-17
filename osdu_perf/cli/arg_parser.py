@@ -16,7 +16,7 @@ Examples:
   osdu_perf init storage              # Initialize tests for storage service
   osdu_perf init search --force       # Force overwrite existing files
   osdu_perf version                   # Show version information
-  osdu_perf run local --config config.yaml  # Run local performance tests
+        osdu_perf run local --scenario record_size_1KB
 """
         )
         self.subparsers = self.parser.add_subparsers(
@@ -35,9 +35,30 @@ Examples:
         parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
         parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
 
+    def _add_split_config_args(self, parser: argparse.ArgumentParser):
+        """Adds system config argument with config-folder default."""
+        parser.add_argument(
+            "--system-config",
+            default="config/system_config.yaml",
+            help="Path to system_config.yaml file (default: config/system_config.yaml)",
+        )
+
+    def _add_implicit_system_config(self, parser: argparse.ArgumentParser):
+        """Sets implicit system config path without exposing a CLI flag."""
+        parser.set_defaults(system_config="config/system_config.yaml")
+
+    def _add_scenario_arg(self, parser: argparse.ArgumentParser):
+        """Adds exactly one scenario name that must exist in test_config.yaml."""
+        parser.add_argument(
+            "--scenario",
+            required=True,
+            help="Single scenario name from config/test_config.yaml",
+        )
+
     def _add_config_arg(self, parser: argparse.ArgumentParser):
-        """Adds the --config argument."""
-        parser.add_argument("--config", "-c", required=True, help="Path to config.yaml file (required)")
+        """Legacy single-config argument (disabled)."""
+        if False:
+            parser.add_argument("--config", "-c", required=True, help="Path to config.yaml file (required)")
 
     def _add_init_command(self):
         """Add 'init' command."""
@@ -78,7 +99,8 @@ Examples:
             "local", help="Run local performance tests using bundled locustfiles"
         )
 
-        self._add_config_arg(local_parser)
+        self._add_implicit_system_config(local_parser)
+        self._add_scenario_arg(local_parser)
         self._add_osdu_connection_args(local_parser)
 
         # Locust Test Parameters (Optional)
@@ -102,7 +124,8 @@ Examples:
             "azure_load_test", help="Run performance tests on Azure Load Testing service"
         )
 
-        self._add_config_arg(azure_parser)
+        self._add_split_config_args(azure_parser)
+        self._add_scenario_arg(azure_parser)
         self._add_osdu_connection_args(azure_parser)
 
         # Azure Configuration

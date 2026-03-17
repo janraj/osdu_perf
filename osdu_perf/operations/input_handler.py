@@ -3,7 +3,7 @@ import logging
 import yaml
 import subprocess
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
@@ -42,50 +42,80 @@ class InputHandler:
         else:
             self.header = None
         
-        # Load configuration for metrics collection and other settings
-        self.config = self._load_config()
-    
-    def _find_config_file(self) -> Optional[Path]:
-        """
-        Find config.yaml file by searching current directory and parent directories.
-        
-        Returns:
-            Path to config.yaml file if found, None otherwise.
-        """
-        # Search for config.yaml starting from current directory
+        # Load split configuration files (system + test)
+        self.system_config, self.test_config = self._load_split_configs()
+        # Keep merged view for backward compatibility with internal callers.
+        self.config = {**self.system_config, **self.test_config}
+        self.selected_scenario: Optional[str] = None
+
+    def _find_split_config_files(self) -> Dict[str, Optional[Path]]:
+        """Find system/test config files, prioritizing config/ subfolder."""
         current_dir = Path.cwd()
-        for directory in [current_dir] + list(current_dir.parents):
-            config_file = directory / "config.yaml"
-            if config_file.exists():
-                self.logger.info(f"Found config file: {config_file}")
-                return config_file
-        
-        self.logger.info("No config.yaml file found, using default values")
-        return None
-    
-    def _load_config(self) -> Dict[str, Any]:
-        """
-        Load configuration from YAML file.
-        
-        Returns:
-            Dictionary containing configuration, or empty dict if file not found.
-        """
-        config_file = self._find_config_file()
-        
-        if not config_file:
+        search_dirs = [current_dir] + list(current_dir.parents)
+
+        found = {
+            'system': None,
+            'test': None,
+        }
+
+        for directory in search_dirs:
+            if found['system'] is None:
+                candidates = [
+                    directory / 'config' / 'system_config.yaml',
+                    directory / 'system_config.yaml',
+                ]
+                for system_file in candidates:
+                    if system_file.exists():
+                        found['system'] = system_file
+                        self.logger.info(f"Found system config file: {system_file}")
+                        break
+
+            if found['test'] is None:
+                candidates = [
+                    directory / 'config' / 'test_config.yaml',
+                    directory / 'test_config.yaml',
+                ]
+                for test_file in candidates:
+                    if test_file.exists():
+                        found['test'] = test_file
+                        self.logger.info(f"Found test config file: {test_file}")
+                        break
+
+            if found['system'] is not None and found['test'] is not None:
+                break
+
+        if found['system'] is None:
+            self.logger.info("No system_config.yaml file found, using defaults")
+        if found['test'] is None:
+            self.logger.info("No test_config.yaml file found, using defaults")
+
+        return found
+
+    def _load_yaml_file(self, path: Optional[Path]) -> Dict[str, Any]:
+        """Load a YAML file safely and return a dictionary."""
+        if path is None:
             return {}
-        
+
         try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f) or {}
-                self.logger.info(f"Successfully loaded configuration from {config_file}")
-                return config
+            with open(path, 'r', encoding='utf-8') as f:
+                content = yaml.safe_load(f) or {}
+                if not isinstance(content, dict):
+                    self.logger.warning(f"YAML root must be a mapping in {path}; using empty config")
+                    return {}
+                return content
         except yaml.YAMLError as e:
-            self.logger.error(f"Error parsing YAML configuration: {e}")
+            self.logger.error(f"Error parsing YAML configuration {path}: {e}")
             return {}
         except Exception as e:
-            self.logger.error(f"Error reading configuration file: {e}")
+            self.logger.error(f"Error reading configuration file {path}: {e}")
             return {}
+
+    def _load_split_configs(self) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """Load split configuration from system and test config files."""
+        discovered = self._find_split_config_files()
+        system_config = self._load_yaml_file(discovered['system'])
+        test_config = self._load_yaml_file(discovered['test'])
+        return system_config, test_config
     
     def _detect_azure_load_test_environment(self):
         """
@@ -369,8 +399,8 @@ class InputHandler:
             'ingest_uri': 'https://ingest-adme-performance.eastus.kusto.windows.net'
         }
         
-        # Get configuration from file or use defaults
-        metrics_config = self.config.get('metrics_collector', {})
+        # Get configuration from system config or use defaults
+        metrics_config = self.system_config.get('metrics_collector', {})
         kusto_config = metrics_config.get('kusto', {})
         
         # Merge with defaults - only use non-empty values from config file
@@ -396,7 +426,7 @@ class InputHandler:
         Returns:
             Dictionary containing all metrics collector configurations.
         """
-        return self.config.get('metrics_collector', {})
+        return self.system_config.get('metrics_collector', {})
     
     def is_kusto_enabled(self) -> bool:
         """
@@ -416,30 +446,67 @@ class InputHandler:
         Returns:
             Dictionary containing test settings with fallback defaults.
         """
-        # Default test settings
+        # Defaults used when split config files are missing or partial.
         default_test_settings = {
             'default_wait_time': {
                 'min': 1,
                 'max': 3
             },
-            'default_users': 10,
-            'default_spawn_rate': 2,
-            'default_run_time': '60s',
-            'test_run_id_prefix': 'osdu_perf_test'
+            'users': 10,
+            'spawn_rate': 2,
+            'run_time': '60s',
+            'engine_instances': 1,
+            'test_name_prefix': 'osdu_perf_test',
+            'test_scenario': '',
+            'test_run_id_description': 'Test run for osdu API',
+            'test_run_id_prefix': 'osdu_perf_test',
         }
-        
-        # Get test settings from config file
-        config_test_settings = self.config.get('test_settings', {})
-        
-        # Merge with defaults
+
+        profile_source = (
+            self.test_config.get('performance_tier_profiles', {})
+            or self.test_config.get('sku_profiles', {})
+            or self.test_config.get('instance_profiles', {})
+            or {}
+        )
+        normalized_profiles = {
+            str(key).lower(): value for key, value in profile_source.items()
+        } if isinstance(profile_source, dict) else {}
+        scenarios = self.test_config.get('scenarios', {}) or {}
+
+        configured_sku = (self.get_osdu_sku() or 'standard').lower()
+        selected_profile = (
+            normalized_profiles.get(configured_sku)
+            or normalized_profiles.get('standard')
+            or normalized_profiles.get('medium')
+            or {}
+        )
+
+        configured_scenario = self.selected_scenario or os.getenv('TEST_SCENARIO')
+        selected_scenario = {}
+        selected_scenario_name = configured_scenario or ''
+        if configured_scenario and configured_scenario in scenarios:
+            selected_scenario = scenarios.get(configured_scenario, {})
+        elif scenarios:
+            selected_scenario_name = next(iter(scenarios.keys()))
+            selected_scenario = scenarios.get(selected_scenario_name, {})
+
         final_settings = default_test_settings.copy()
-        if config_test_settings:
-            # Deep merge for nested dictionaries like default_wait_time
-            for key, value in config_test_settings.items():
+        if isinstance(selected_profile, dict):
+            for key, value in selected_profile.items():
                 if key == 'default_wait_time' and isinstance(value, dict):
-                    final_settings[key].update(value)
-                else:
+                    final_settings[key].update({k: v for k, v in value.items() if v is not None})
+                elif value is not None:
                     final_settings[key] = value
+
+        if isinstance(selected_scenario, dict):
+            for key, value in selected_scenario.items():
+                if value is not None:
+                    final_settings[key] = value
+
+        if not final_settings.get('test_scenario'):
+            final_settings['test_scenario'] = selected_scenario_name
+        if not final_settings.get('test_run_id_prefix'):
+            final_settings['test_run_id_prefix'] = final_settings.get('test_name_prefix', 'osdu_perf_test')
         
         return final_settings
     
@@ -530,11 +597,11 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
+        osdu_env = self.system_config.get('osdu_environment', {})
         host = osdu_env.get('host')
         
         if not host or not host.strip():
-            raise ValueError("OSDU host must be configured in config.yaml or provided via --host argument")
+            raise ValueError("OSDU host must be configured in system_config.yaml or provided via --host argument")
             
         return host.strip()
     
@@ -554,11 +621,11 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
+        osdu_env = self.system_config.get('osdu_environment', {})
         partition = osdu_env.get('partition')
         
         if not partition or not partition.strip():
-            raise ValueError("OSDU partition must be configured in config.yaml or provided via --partition argument")
+            raise ValueError("OSDU partition must be configured in system_config.yaml or provided via --partition argument")
             
         return partition.strip()
     
@@ -578,11 +645,11 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
+        osdu_env = self.system_config.get('osdu_environment', {})
         app_id = osdu_env.get('app_id')
         
         if not app_id or not app_id.strip():
-            raise ValueError("OSDU app_id must be configured in config.yaml or provided via --app-id argument")
+            raise ValueError("OSDU app_id must be configured in system_config.yaml or provided via --app-id argument")
             
         return app_id.strip()
     
@@ -603,19 +670,22 @@ class InputHandler:
     
     def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
         """
-        Get OSDU SKU from config.yaml or CLI override.
+        Get OSDU SKU value from config or CLI override.
+
+        Internally we still use the `sku` variable name in execution paths,
+        but config can provide either `performance_tier` (preferred) or legacy `sku`.
         
         Args:
             cli_override: Optional CLI argument value to override config
             
         Returns:
-            OSDU SKU value (defaults to "Standard" if not configured)
+            OSDU SKU/performance tier value
         """
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
-        return osdu_env.get('sku')
+        osdu_env = self.system_config.get('osdu_environment', {})
+        return osdu_env.get('performance_tier') or osdu_env.get('sku')
         
     def get_osdu_version(self, cli_override: Optional[str] = None) -> str:
         """
@@ -630,7 +700,7 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        osdu_env = self.config.get('osdu_environment', {})
+        osdu_env = self.system_config.get('osdu_environment', {})
         return osdu_env.get('version')
         
     def get_azure_subscription_id(self, cli_override: Optional[str] = None) -> str:
@@ -649,8 +719,8 @@ class InputHandler:
         if cli_override:
             return cli_override
         
-        test_settings = self.get_test_settings()
-        return test_settings.get('subscription_id')
+        test_env = self.system_config.get('test_environment', {})
+        return test_env.get('subscription_id')
 
     def get_azure_resource_group(self, cli_override: Optional[str] = None) -> str:
         """
@@ -668,8 +738,8 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        test_settings = self.get_test_settings()
-        return test_settings.get('resource_group', 'adme-performance-rg')
+        test_env = self.system_config.get('test_environment', {})
+        return test_env.get('resource_group', 'adme-performance-rg')
 
     def get_azure_location(self, cli_override: Optional[str] = None) -> str:
         """
@@ -684,8 +754,8 @@ class InputHandler:
         if cli_override:
             return cli_override
             
-        test_settings = self.get_test_settings()
-        return test_settings.get('location', 'eastus')
+        test_env = self.system_config.get('test_environment', {})
+        return test_env.get('location', 'eastus')
     
 
     def get_test_name_prefix(self) -> str:
@@ -709,28 +779,68 @@ class InputHandler:
         return test_settings.get('test_run_id_description', 'Test run for search API')
 
     def load_from_config_file(self, config_path: str) -> None:
-        """
-        Load configuration from a specific config file path.
-        
-        Args:
-            config_path: Path to the config.yaml file
-            
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-            ValueError: If config file is invalid YAML
-        """
-        config_file = Path(config_path)
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-            
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f) or {}
-            self.logger.info(f"Loaded configuration from: {config_path}")
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML in config file {config_path}: {e}")
-        except Exception as e:
-            raise ValueError(f"Error reading config file {config_path}: {e}")
+        """Legacy single-config loader (disabled)."""
+        if False:
+            _ = config_path
+        raise NotImplementedError(
+            "Single config parsing is disabled. Use load_from_split_config_files(system_config_path, test_config_path)."
+        )
+
+    def load_from_split_config_files(self, system_config_path: str, test_config_path: Optional[str] = None) -> None:
+        """Load configuration from system config and test config (explicit or inferred sibling)."""
+        system_file = Path(system_config_path)
+        test_file = Path(test_config_path) if test_config_path else (system_file.parent / 'test_config.yaml')
+
+        if not system_file.exists():
+            raise FileNotFoundError(f"System config file not found: {system_config_path}")
+        if not test_file.exists():
+            raise FileNotFoundError(f"Test config file not found: {test_file}")
+
+        self.system_config = self._load_yaml_file(system_file)
+        self.test_config = self._load_yaml_file(test_file)
+        self.config = {**self.system_config, **self.test_config}
+        self.logger.info(
+            f"Loaded split configuration from system={system_config_path}, test={test_file}"
+        )
+
+    def get_available_scenarios(self) -> Dict[str, Any]:
+        """Return configured scenarios map from test config."""
+        return self.test_config.get('scenarios', {}) or {}
+
+    def set_selected_scenario(self, scenario_name: Optional[str]) -> None:
+        """Set selected scenario used for resolving scenario-specific settings."""
+        self.selected_scenario = scenario_name
+
+    def validate_scenario(self, scenario: Optional[str | List[str]]) -> str:
+        """Validate exactly one scenario value against test_config.yaml and return normalized value."""
+        configured = self.get_available_scenarios()
+        if not scenario:
+            if configured:
+                return next(iter(configured.keys()))
+            return ''
+
+        if isinstance(scenario, list):
+            normalized = [s.strip() for s in scenario if s and s.strip()]
+            if len(normalized) != 1:
+                raise ValueError("Exactly one --scenario value is supported for this command")
+            scenario_name = normalized[0]
+        else:
+            scenario_name = scenario.strip()
+
+        if ',' in scenario_name:
+            raise ValueError(
+                "Exactly one --scenario value is supported; comma-separated values are not allowed"
+            )
+        if configured and scenario_name not in configured:
+            raise ValueError(
+                f"Invalid scenario: {scenario_name}. Available: {', '.join(configured.keys())}"
+            )
+        return scenario_name
+
+    def validate_scenarios(self, scenarios: Optional[List[str]]) -> List[str]:
+        """Backward-compatible wrapper around single-scenario validation."""
+        validated = self.validate_scenario(scenarios)
+        return [validated] if validated else []
         
     def get_test_run_name(self, test_name: str) -> str:
         """
@@ -746,7 +856,7 @@ class InputHandler:
         max_base_length = max_length - len(f"{timestamp}")
         return f"{test_name[:max_base_length]}-{timestamp}"
 
-    def get_test_scenario(self, cli_override: Optional[str] = None) -> str:
+    def get_test_scenario(self, cli_override: Optional[List[str] | str] = None) -> str:
         """
         Get test scenario from config.yaml or CLI override.
         
@@ -757,7 +867,10 @@ class InputHandler:
             Test scenario value (defaults to "storage1" if not configured)
         """
         if cli_override:
-            return cli_override
+            return self.validate_scenario(cli_override)
 
         test_settings = self.get_test_settings()
-        return test_settings.get('test_scenario', '')
+        configured_scenario = test_settings.get('test_scenario', '')
+        if configured_scenario:
+            return self.validate_scenario(configured_scenario)
+        return ''

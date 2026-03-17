@@ -11,8 +11,11 @@ class AzureLoadTestCommand(Command):
 
     def validate_args(self, args) -> bool:
         self.logger.info("Validating Azure Load Test command arguments...")
-        if not hasattr(args, 'config') or not args.config:
-            self.logger.error("❌ Config file is required for Azure Load Tests")
+        if not hasattr(args, 'system_config') or not args.system_config:
+            self.logger.error("❌ System config file is required for Azure Load Tests")
+            return False
+        if not hasattr(args, 'scenario') or not args.scenario:
+            self.logger.error("❌ Exactly one --scenario value is required for Azure Load Tests")
             return False
         return True
     
@@ -68,9 +71,9 @@ class AzureLoadTestCommand(Command):
         """Load and validate Azure Load Test configuration."""
         from osdu_perf.operations.input_handler import InputHandler
         
-        self.logger.info(f"Loading configuration from: {args.config}")
+        self.logger.info(f"Loading configuration from system={args.system_config}")
         input_handler = InputHandler(None)
-        input_handler.load_from_config_file(args.config)
+        input_handler.load_from_split_config_files(args.system_config)
         
         # Get OSDU environment details from config with CLI overrides
         host = args.host or input_handler.get_osdu_host()
@@ -88,6 +91,10 @@ class AzureLoadTestCommand(Command):
         resource_group = args.resource_group or input_handler.get_azure_resource_group()
         location = args.location or input_handler.get_azure_location()
         
+        # Scenario selection must match test config and be exactly one value.
+        valid_scenario = input_handler.validate_scenario(getattr(args, 'scenario', None))
+        input_handler.set_selected_scenario(valid_scenario or None)
+
         # Get test parameters
         users = input_handler.get_users(getattr(args, 'users', None))
         spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
@@ -102,7 +109,7 @@ class AzureLoadTestCommand(Command):
         # Generate test name
         test_name = input_handler.get_test_name_prefix()
         test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
-        tags = input_handler.get_test_scenario()
+        tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
         
         execution_display_name = input_handler.get_test_run_name(test_name)
         
@@ -133,21 +140,21 @@ class AzureLoadTestCommand(Command):
         """Validate required Azure Load Test parameters."""
         # Validate required OSDU parameters
         if not config['host']:
-            self.logger.error("❌ OSDU host URL is required (--host or config.yaml)")
+            self.logger.error("❌ OSDU host URL is required (--host or system_config.yaml)")
             sys.exit(1)
         if not config['partition']:
-            self.logger.error("❌ OSDU partition is required (--partition or config.yaml)")
+            self.logger.error("❌ OSDU partition is required (--partition or system_config.yaml)")
             sys.exit(1)
             
         # Validate required Azure Load Test parameters
         if not config['subscription_id']:
-            self.logger.error("❌ Azure subscription ID is required (--subscription-id or config.yaml)")
+            self.logger.error("❌ Azure subscription ID is required (--subscription-id or system_config.yaml)")
             sys.exit(1)
         if not config['resource_group']:
-            self.logger.error("❌ Azure resource group is required (--resource-group or config.yaml)")
+            self.logger.error("❌ Azure resource group is required (--resource-group or system_config.yaml)")
             sys.exit(1)
         if not config['location']:
-            self.logger.error("❌ Azure location is required (--location or config.yaml)")
+            self.logger.error("❌ Azure location is required (--location or system_config.yaml)")
             sys.exit(1)
 
 
@@ -226,9 +233,18 @@ class AzureLoadTestCommand(Command):
             )
             
             if execution_result:
-                execution_id = execution_result.get('testRunId', 
-                                                execution_result.get('name', 
-                                                                    execution_result.get('id', 'unknown')))
+                if isinstance(execution_result, dict):
+                    execution_id = execution_result.get(
+                        'testRunId',
+                        execution_result.get('name', execution_result.get('id', config['execution_display_name']))
+                    )
+                else:
+                    execution_id = (
+                        getattr(execution_result, 'testRunId', None)
+                        or getattr(execution_result, 'name', None)
+                        or getattr(execution_result, 'id', None)
+                        or config['execution_display_name']
+                    )
                 self.logger.info("✅ STEP 4 Load test execution started successfully!")
                 self.logger.info(f"  Execution ID: {execution_id}")
                 self.logger.info(f"  Display Name: {config['execution_display_name']} (length: {len(config['execution_display_name'])})")
