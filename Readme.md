@@ -57,7 +57,9 @@ osdu_perf init wellbore    # Creates wellbore service performance tests
 **What this creates:**
 ```
 perf_tests/
-├── config.yaml               # Framework configuration
+├── config/
+│   ├── system_config.yaml    # OSDU/Azure environment + metrics configuration
+│   └── test_config.yaml      # Scenario definitions and test defaults
 ├── locustfile.py             # Main test file with API calls
 ├── requirements.txt          # Python dependencies
 └── README.md                 # Project documentation
@@ -67,7 +69,7 @@ perf_tests/
 
 ```bash
 # Run performance tests locally using Locust
-osdu_perf run local --config config.yaml
+osdu_perf run local --scenario health_check
 
 ```
 
@@ -82,7 +84,7 @@ osdu_perf run local --config config.yaml
 
 ```bash
 # Deploy and run tests on Azure Load Testing service
-osdu_perf run azure_load_test --config config.yaml 
+osdu_perf run azure_load_test --scenario health_check
 ```
 
 **Features:**
@@ -112,7 +114,8 @@ osdu_perf init wellbore            # Initialize wellbore service tests
 ```
 
 **Generated Files:**
-- `config.yaml` - Framework configuration with OSDU connection details
+- `config/system_config.yaml` - OSDU/Azure environment and metrics settings
+- `config/test_config.yaml` - Scenario definitions and test defaults
 - `locustfile.py` - Main test file with API calls to your service
 - `requirements.txt` - Python dependencies
 - `README.md` - Project-specific documentation
@@ -124,12 +127,12 @@ osdu_perf run local [OPTIONS]
 ```
 
 **Configuration:**
-- Uses `config.yaml` for base configuration
+- Uses config files in `config/`
 - CLI arguments override config file settings
 - Environment variables provide runtime values
 
 **Key Options:**
-- `--config`: Path to config.yaml file (required)
+- `--scenario`: Single scenario key from `config/test_config.yaml` (required)
 - `--host`: OSDU host URL (overrides config)
 - `--partition`: OSDU data partition ID (overrides config)  
 - `--app-id`: Azure AD Application ID (overrides config)
@@ -139,15 +142,15 @@ osdu_perf run local [OPTIONS]
 
 **Examples:**
 ```bash
-# Basic run using config.yaml
-osdu_perf run local --config config.yaml
+# Basic run
+osdu_perf run local --scenario health_check
 
 # Override specific settings
-osdu_perf run local --config config.yaml --users 50 --run-time 5m
+osdu_perf run local --scenario health_check --users 50 --run-time 5m
 
 # Full override
 osdu_perf run local \
-  --config config.yaml \
+  --scenario health_check \
   --host https://api.example.com \
   --partition dp1 \
   --app-id 12345678-1234-1234-1234-123456789abc \
@@ -161,7 +164,7 @@ osdu_perf run azure_load_test [OPTIONS]
 ```
 
 **Required Parameters:**
-- `--config`: Path to config.yaml file
+- `--scenario`: Single scenario key from `config/test_config.yaml`
 
 
 **Optional Parameters:**
@@ -173,16 +176,16 @@ osdu_perf run azure_load_test [OPTIONS]
 
 **Examples:**
 ```bash
-# Basic Azure Load Test using config
-osdu_perf run azure \
-  --config config.yaml \
+# Basic Azure Load Test
+osdu_perf run azure_load_test \
+  --scenario health_check \
   --subscription-id "12345678-1234-1234-1234-123456789012" \
   --resource-group "myResourceGroup" \
   --location "eastus"
 
 # High-scale cloud test
-osdu_perf run azure \
-  --config config.yaml \
+osdu_perf run azure_load_test \
+  --scenario health_check \
   --subscription-id "12345678-1234-1234-1234-123456789012" \
   --resource-group "myResourceGroup" \
   --location "eastus" \
@@ -191,9 +194,9 @@ osdu_perf run azure \
 
 ## 📝 Configuration System
 
-### config.yaml Structure
+### Config Structure
 
-The framework uses a centralized configuration file that supports both local and Azure environments:
+The framework uses system and tests configuration files that support both local and Azure environments:
 
 ```yaml
 # OSDU Environment Configuration
@@ -236,16 +239,27 @@ test_settings:
   run_time: "60s"
   engine_instances: 1
   test_name_prefix: "osdu_perf_test"
+  # Single scenario key selected at runtime via --scenario
   test_scenario: "health_check"
   test_run_id_description: "Automated performance test"
+```
+
+```yaml
+# config/test_config.yaml
+scenarios:
+  health_check:
+    users: 10
+    spawn_rate: 2
+    run_time: "60s"
+    engine_instances: 1
 ```
 
 ### Configuration Hierarchy
 
 The framework uses a layered configuration approach:
 
-1. **config.yaml** (project-specific settings)
-2. **CLI arguments** (highest priority)
+1. **`config/system_config.yaml` + `config/test_config.yaml`** (project-specific settings)
+2. **CLI arguments** (highest priority, including required `--scenario`)
 
 
 ## 🏗️ How It Works
@@ -257,7 +271,8 @@ The framework now uses a simplified API-based approach where developers write te
 ```
 perf_tests/
 ├── locustfile.py            → OSDUUser class with @task methods for testing
-├── config.yaml              → Configuration for host, partition, authentication  
+├── config/system_config.yaml → Host, partition, authentication, Azure settings
+├── config/test_config.yaml   → Scenario definitions and test defaults
 ├── requirements.txt         → Dependencies (osdu_perf package)
 ```
 
@@ -414,7 +429,7 @@ The framework uses a layered configuration approach (highest priority first):
 
 1. **CLI arguments** - Direct command-line overrides
 2. **Environment variables** - Runtime values  
-3. **config.yaml** - Project-specific settings
+3. **config/system_config.yaml + config/test_config.yaml** - Project-specific settings
 4. **Default values** - Framework defaults
 
 ### Environment Variables
@@ -549,7 +564,8 @@ pip install azure-cli azure-identity azure-mgmt-loadtesting azure-mgmt-resource 
 ```
 perf_tests/
 ├── locustfile.py            # Main test file with API calls and @task methods
-├── config.yaml              # Framework configuration (OSDU, metrics, test settings)
+├── config/system_config.yaml # OSDU/Azure environment + metrics configuration
+├── config/test_config.yaml   # Scenario definitions and test defaults
 ├── requirements.txt         # Python dependencies (osdu_perf package)  
 └── README.md               # Project documentation
 ```
@@ -588,17 +604,6 @@ This project is licensed under the MIT License — see the `LICENSE` file for de
 - **Issues**: [GitHub Issues](https://github.com/janraj/osdu_perf/issues)
 - **Contact**: janrajcj@microsoft.com
 - **Documentation**: This README and inline code documentation
-
-## 🚀 What's New in v1.0.24
-
-- ✅ **Three-Command Workflow**: `init`, `run local`, `run azure` - complete testing pipeline
-- ✅ **Configuration-Driven**: YAML-based configuration with environment-aware settings
-- ✅ **Service Orchestration**: Intelligent service discovery with lifecycle management
-- ✅ **Enhanced Authentication**: Multi-credential Azure authentication with automatic detection
-- ✅ **Metrics Integration**: Automated Kusto metrics collection with environment detection
-- ✅ **Template System**: Updated project templates with modern framework patterns
-- ✅ **Error Handling**: Improved error handling and defensive coding patterns
-- ✅ **CLI Improvements**: Better argument parsing and validation
 
 ---
 

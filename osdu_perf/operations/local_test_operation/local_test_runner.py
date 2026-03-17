@@ -71,16 +71,21 @@ class LocalTestRunner:
         self._input_handler: Optional[InputHandler] = None
         self._test_config: Optional[TestConfiguration] = None
 
-    def _get_input_handler(self, config_file: str) -> InputHandler:
+    @staticmethod
+    def _resolve_system_config(args) -> str:
+        """Resolve system config path, defaulting to init-created config location."""
+        return getattr(args, 'system_config', None) or "config/system_config.yaml"
+
+    def _get_input_handler(self, system_config_file: str) -> InputHandler:
         """Get or create InputHandler instance with configuration loaded."""
         if self._input_handler is None:
             self._input_handler = InputHandler(None)
-            self._input_handler.load_from_config_file(config_file)
+            self._input_handler.load_from_split_config_files(system_config_file)
         return self._input_handler
 
     def _extract_osdu_parameters(self, args) -> Tuple[str, str, str, Optional[str]]:
         """Extract and validate OSDU parameters from config and CLI args."""
-        input_handler = self._get_input_handler(args.config)
+        input_handler = self._get_input_handler(self._resolve_system_config(args))
         
         host = input_handler.get_osdu_host(getattr(args, 'host', None))
         partition = input_handler.get_osdu_partition(getattr(args, 'partition', None))
@@ -112,14 +117,14 @@ class LocalTestRunner:
                 
         except ValueError as ve:
             self.logger.error(f"❌ OSDU Configuration Error: {ve}")
-            self.logger.info("💡 Make sure config.yaml contains required osdu_environment settings or provide CLI overrides:")
+            self.logger.info("💡 Make sure system_config.yaml contains required osdu_environment settings or provide CLI overrides:")
             self.logger.info("   --host <OSDU_HOST_URL>")
             self.logger.info("   --partition <PARTITION_ID>") 
             self.logger.info("   --app-id <APPLICATION_ID>")
             self.logger.info("   --token <BEARER_TOKEN>")
             return False
         except FileNotFoundError:
-            self.logger.error(f"❌ Config file not found: {args.config}")
+            self.logger.error(f"❌ Config file not found: system={self._resolve_system_config(args)}")
             self.logger.info("💡 Make sure the config file exists or run 'osdu-perf init <service>' to create a project structure")
             return False
         except Exception as e:
@@ -214,8 +219,10 @@ class LocalTestRunner:
             "--users", str(test_config.users),
             "--spawn-rate", str(test_config.spawn_rate),
             "--run-time", str(test_config.run_time),
-            "--tags", test_config.tags,
         ]
+
+        if test_config.tags:
+            locust_cmd.extend(["--tags", test_config.tags])
         
         # Add headless/web-ui options
         # Default is web UI, use headless only if explicitly requested
@@ -226,15 +233,19 @@ class LocalTestRunner:
 
     def _load_test_configuration(self, args) -> TestConfiguration:
         """Load and resolve test configuration parameters into a data class."""
-        input_handler = self._get_input_handler(args.config)
+        input_handler = self._get_input_handler(self._resolve_system_config(args))
         
         # Get resolved parameters with CLI overrides
         host, partition, app_id, token = self._extract_osdu_parameters(args)
         
+        requested_scenarios = getattr(args, 'scenario', None)
+        valid_scenario = input_handler.validate_scenario(requested_scenarios)
+        input_handler.set_selected_scenario(valid_scenario or None)
+
         users = input_handler.get_users(getattr(args, 'users', None))
         spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
         run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
-        tags = input_handler.get_test_scenario(getattr(args, 'test_scenario', None))
+        tags = input_handler.get_test_scenario(requested_scenarios)
         
         # Generate test run ID using configured prefix
         test_run_id_prefix = input_handler.get_test_run_id_prefix()

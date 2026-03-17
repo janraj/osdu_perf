@@ -7,8 +7,8 @@ class LocalTestCommand(Command):
         self.logger = logger
 
     def validate_args(self, args) -> bool:
-        if not hasattr(args, 'config') or not args.config:
-            self.logger.error("❌ Config file is required for local tests")
+        if not hasattr(args, 'scenario') or not args.scenario:
+            self.logger.error("❌ Exactly one --scenario value is required for local tests")
             return False
         return True
     

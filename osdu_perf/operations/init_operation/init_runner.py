@@ -33,11 +33,11 @@ osdu_environment:
   host: "https://your-osdu-host.com"
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
-  
-  # OSDU deployment details (optional - used for metrics collection)
-  sku: "Standard"
+
+  performance_tier: "Standard"
   version: "25.2.35"
-  
+
+# OSDU deployment details (optional - used for metrics collection)
 # Metrics Collection Configuration  [Optional] 
 # metrics_collector:
   # Kusto (Azure Data Explorer) Configuration
@@ -82,7 +82,9 @@ This project contains performance tests for the OSDU {service_name.title()} Serv
 
 ```
 perf_tests/
-├── config.yaml               # Framework configuration (OSDU connection, metrics, test settings)
+├── config/
+│   ├── system_config.yaml    # OSDU/Azure environment + metrics configuration
+│   └── test_config.yaml      # Scenario definitions and test defaults
 ├── locustfile.py              # Main test file with API calls and @task methods
 ├── requirements.txt          # Python dependencies (osdu_perf package)
 └── README.md                 # This file
@@ -91,10 +93,10 @@ perf_tests/
 ## 🚀 Quick Start
 
 ### 1. Configure Your Environment
-Edit `config.yaml` and update:
-- OSDU environment details (host, partition, app_id). This configuration is essential to run tests.
-- You can create multiple such config files with different scenarios.
-- The test scenario must be used in the test so that the tool picks up only those scenarios and runs them.
+Edit config files in `config/`:
+- `config/system_config.yaml`: OSDU environment details (host, partition, app_id), Azure settings, and metrics settings.
+- `config/test_config.yaml`: scenario map and default test values.
+- `--scenario` must be a single scenario key from `config/test_config.yaml`.
 
 ### 2. Customize Your Tests
 Edit `locustfile.py` and add @task methods with:
@@ -108,18 +110,18 @@ Edit `locustfile.py` and add @task methods with:
 
 #### Local Testing (Development)
 ```bash
-# Basic run using config.yaml
-osdu_perf run local --config config.yaml
+# Basic run using split config files
+osdu_perf run local --scenario record_size_1KB
 
 # Override specific settings for testing
-osdu_perf run local --config config.yaml --users 5 --run-time 30s
+osdu_perf run local --scenario record_size_1KB --users 5 --run-time 30s
 
 ```
 
 #### Azure Load Testing (Production Scale)
 ```bash
 # Deploy and run on Azure Load Testing service
-osdu_perf run azure_load_test --config config.yaml 
+osdu_perf run azure_load_test --scenario record_size_1KB
   
 ```
 
@@ -204,11 +206,11 @@ self.get("/api/{service_name}/v1/info", headers={{"Custom-Header": "value"}})
 
 ## 🔧 Configuration
 
-### Framework Configuration (config.yaml)
+### Framework Configuration (split files)
 
-The `config.yaml` file contains framework-wide settings:
+The framework uses split configuration files:
 - Can have own metrics collector 
-- Can have have multiple test scenarios
+- Can have multiple scenario definitions in `config/test_config.yaml` (run command accepts one scenario at a time)
 - Can have own azure load test instance.
 
 ```yaml
@@ -217,7 +219,7 @@ osdu_environment:
   host: "https://your-osdu-host.com"
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
-  sku: "Standard"
+    performance_tier: "Standard"
   version: "25.2.35"
 
 # Metrics Collection Configuration  
@@ -298,8 +300,8 @@ The framework automatically handles Azure authentication:
 
 3. **Configuration Issues**
    ```bash
-   # Validate config.yaml syntax
-   python -c "import yaml; yaml.safe_load(open('config.yaml'))"
+    # Validate split config YAML files
+    python -c "import yaml; yaml.safe_load(open('config/system_config.yaml')); yaml.safe_load(open('config/test_config.yaml'))"
    ```
 
 4. **Missing Dependencies**
@@ -437,6 +439,92 @@ class OSDUUser(HttpUser):
         output_path.write_text(template, encoding='utf-8')
         print(f"[create_locustfile_template] Created {output_path.name}")
 
+    def create_system_config_file(self, output_path: Path) -> None:
+        """Creates system_config.yaml with key-only shared settings."""
+        config_content = """# Shared system configuration for OSDU performance tests
+# Keep environment and Azure Load Test location values here.
+
+osdu_environment:
+  # OSDU instance details (required for run local command)
+  host:
+  partition:
+  app_id:
+
+  performance_tier:
+  version:
+
+# OSDU deployment details (optional - used for metrics collection)
+# Metrics Collection Configuration (optional)
+# metrics_collector:
+#   kusto:
+#     cluster:
+#     database:
+#     ingest_uri:
+
+test_environment:
+  # Where the Azure Load Testing resource and tests are located
+  subscription_id:
+  resource_group:
+  location:
+"""
+        output_path.write_text(config_content, encoding='utf-8')
+        self.logger.info(f"Created {output_path.name}")
+
+    def create_test_config_file(self, output_path: Path) -> None:
+        """Creates test_config.yaml with key-only performance-tier/scenario fields."""
+        config_content = """# Test configuration split from system settings.
+# Supports per-performance-tier tuning with per-scenario overrides.
+performance_tier_profiles:
+  flex:
+    default_wait_time:
+      min:
+      max:
+    users:
+    spawn_rate:
+    run_time:
+    engine_instances:
+
+  standard:
+    default_wait_time:
+      min:
+      max:
+    users:
+    spawn_rate:
+    run_time:
+    engine_instances:
+
+  developer:
+    default_wait_time:
+      min:
+      max:
+    users:
+    spawn_rate:
+    run_time:
+    engine_instances:
+
+scenarios:
+  # Required per scenario:
+  # - Scenario key itself is the test scenario/tag (e.g., record_size_1KB)
+  # - Provide test_name_prefix and test_run_id_description
+  record_size_1KB:
+    test_name_prefix:
+    test_run_id_description:
+
+  record_size_100KB:
+    test_name_prefix:
+    test_run_id_description:
+
+  record_size_1MB:
+    test_name_prefix:
+    test_run_id_description:
+
+  create_and_update_scenario:
+    test_name_prefix:
+    test_run_id_description:
+"""
+        output_path.write_text(config_content, encoding='utf-8')
+        self.logger.info(f"Created {output_path.name}")
+
     # required 
     
     def _should_create_file(self, filepath: str, choice: str) -> bool:
@@ -461,6 +549,7 @@ class OSDUUser(HttpUser):
     def _create_file_if_needed(self, path: Path, creation_func, choice: str, *args) -> None:
         """A wrapper to create a file or skip it based on user choice."""
         if self._should_create_file(path, choice):
+            path.parent.mkdir(parents=True, exist_ok=True)
             # Unpack the list of args if it's passed as a single list
             creation_func(path, *args[0] if isinstance(args[0], list) else args)
         else:
@@ -530,8 +619,13 @@ class OSDUUser(HttpUser):
             {"name": "requirements.txt", "creator": self.create_requirements_file, "args": []},
             {"name": "README.md", "creator": self.create_project_readme, "args": [service_name]},
             {"name": "locustfile.py", "creator": self.create_locustfile_template, "args": [service_name]},
-            {"name": "config.yaml", "creator": self.create_project_config, "args": [service_name]},
+            {"name": "config/system_config.yaml", "creator": self.create_system_config_file, "args": []},
+            {"name": "config/test_config.yaml", "creator": self.create_test_config_file, "args": []},
         ]
+
+        # Keep legacy config generation code in place, but disable it explicitly.
+        if False:
+            files_to_create.append({"name": "config.yaml", "creator": self.create_project_config, "args": [service_name]})
         
         for file_meta in files_to_create:
             file_path = project_path / file_meta["name"]
@@ -542,8 +636,9 @@ class OSDUUser(HttpUser):
         self.logger.info(f"Next steps:")
         self.logger.info(f"         1. cd {project_name}")
         self.logger.info(f"         2. pip install -r requirements.txt")
-        self.logger.info(f"         3. Edit config.yaml to set your OSDU environment details")
-        self.logger.info(f"         4. Edit locustfile.py to implement your test scenarios")
-        self.logger.info(f"         5. Run local tests: osdu-perf run local --config config.yaml")
-        self.logger.info(f"         6. Run Azure Load Tests: osdu-perf run azure_load_test --config config.yaml ")
-        self.logger.info(f"         7. Optional: Override config values with CLI arguments")
+        self.logger.info(f"         3. Edit config/system_config.yaml to set your OSDU environment details")
+        self.logger.info(f"         4. Edit config/test_config.yaml to define performance-tier/scenario test defaults")
+        self.logger.info(f"         5. Edit locustfile.py to implement your test scenarios")
+        self.logger.info(f"         6. Run local tests: osdu-perf run local --scenario record_size_1KB")
+        self.logger.info(f"         7. Run Azure Load Tests: osdu-perf run azure_load_test --scenario record_size_1KB")
+        self.logger.info(f"         8. Optional: Override config values with CLI arguments")
