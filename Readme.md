@@ -127,7 +127,7 @@ osdu_perf run local [OPTIONS]
 ```
 
 **Configuration:**
-- Uses split config files in `config/`
+- Uses config files in `config/`
 - CLI arguments override config file settings
 - Environment variables provide runtime values
 
@@ -194,9 +194,9 @@ osdu_perf run azure_load_test \
 
 ## 📝 Configuration System
 
-### Split Config Structure
+### Config Structure
 
-The framework uses split configuration files that support both local and Azure environments:
+The framework uses system and tests configuration files that support both local and Azure environments:
 
 ```yaml
 # OSDU Environment Configuration
@@ -604,17 +604,6 @@ This project is licensed under the MIT License — see the `LICENSE` file for de
 - **Issues**: [GitHub Issues](https://github.com/janraj/osdu_perf/issues)
 - **Contact**: janrajcj@microsoft.com
 - **Documentation**: This README and inline code documentation
-
-## 🚀 What's New in v1.0.24
-
-- ✅ **Three-Command Workflow**: `init`, `run local`, `run azure_load_test` - complete testing pipeline
-- ✅ **Configuration-Driven**: YAML-based configuration with environment-aware settings
-- ✅ **Service Orchestration**: Intelligent service discovery with lifecycle management
-- ✅ **Enhanced Authentication**: Multi-credential Azure authentication with automatic detection
-- ✅ **Metrics Integration**: Automated Kusto metrics collection with environment detection
-- ✅ **Template System**: Updated project templates with modern framework patterns
-- ✅ **Error Handling**: Improved error handling and defensive coding patterns
-- ✅ **CLI Improvements**: Better argument parsing and validation
 
 ---
 
