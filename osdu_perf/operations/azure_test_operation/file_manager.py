@@ -47,6 +47,9 @@ class AzureLoadTestFileManager:
         uploaded_files = []
         self.logger.info(f"Uploading {len(test_files)} files to test '{test_name}'...")
         
+        # Sort so locustfile.py (JMX_FILE) is uploaded last per Azure Load Testing recommendation
+        test_files = sorted(test_files, key=lambda f: f.name.lower() == 'locustfile.py')
+        
         try:
             for file_path in test_files:
                 if not file_path.exists():
