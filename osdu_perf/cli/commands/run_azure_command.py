@@ -53,7 +53,8 @@ class AzureLoadTestCommand(Command):
                 run_time=config['run_time'],
                 engine_instances=config['engine_instances'],
                 tags=config['tags'],
-                adme_token = config['osdu_adme_token']
+                adme_token = config['osdu_adme_token'],
+                test_description = config.get('test_description', '')
             )
             
             if setup_success:
@@ -110,7 +111,7 @@ class AzureLoadTestCommand(Command):
         test_name = input_handler.get_test_name_prefix()
         test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
         tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
-        
+        test_description = input_handler.get_test_run_id_description()
         execution_display_name = input_handler.get_test_run_name(test_name)
         
         return {
@@ -130,6 +131,7 @@ class AzureLoadTestCommand(Command):
             'test_run_id': test_run_id,
             'test_name': test_name,
             'tags': tags,
+            'test_description': test_description,
             'execution_display_name': execution_display_name,
             'timestamp': timestamp
         }

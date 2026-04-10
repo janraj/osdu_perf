@@ -289,7 +289,8 @@ class AzureLoadTestRunner:
                    users: int = 10,
                    spawn_rate: int = 2,
                    run_time: str = "60s",
-                   engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                   engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None,
+                   test_description: str = "") -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -359,7 +360,7 @@ class AzureLoadTestRunner:
             
             body = {
                 "displayName": display_name,
-                "description": f"Load test for Service {test_name} , SKU {self.sku}, Version {self.version}",
+                "description": test_description if test_description else f"Load test for Service {test_name} , SKU {self.sku}",
                 "kind": "Locust",  # Specify Locust as the testing framework
                 "engineBuiltinIdentityType": "SystemAssigned",
                 "loadTestConfiguration": {
@@ -466,7 +467,8 @@ class AzureLoadTestRunner:
                         spawn_rate: int = 2,
                         run_time: str = "60s",
                         engine_instances: int = 1,
-                        tags: str = "", adme_token: Optional[str] = None) -> bool:
+                        tags: str = "", adme_token: Optional[str] = None,
+                        test_description: str = "") -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         Delegates file finding and uploading to AzureLoadTestFileManager.
@@ -560,7 +562,8 @@ class AzureLoadTestRunner:
                 run_time=run_time,
                 engine_instances=engine_instances,
                 tags=tags,
-                adme_token=adme_token
+                adme_token=adme_token,
+                test_description=test_description
             )
             
             if not test_result:
