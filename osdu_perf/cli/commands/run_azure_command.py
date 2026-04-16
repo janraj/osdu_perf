@@ -11,9 +11,6 @@ class AzureLoadTestCommand(Command):
 
     def validate_args(self, args) -> bool:
         self.logger.info("Validating Azure Load Test command arguments...")
-        if not hasattr(args, 'system_config') or not args.system_config:
-            self.logger.error("❌ System config file is required for Azure Load Tests")
-            return False
         if not hasattr(args, 'scenario') or not args.scenario:
             self.logger.error("❌ Exactly one --scenario value is required for Azure Load Tests")
             return False
