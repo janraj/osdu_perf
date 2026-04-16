@@ -138,7 +138,6 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--system-config', 'system_config.yaml',
             '--scenario', 'record_size_1KB',
             '--token', 'test-token',
             '--subscription-id', 'test-sub-id'
@@ -146,7 +145,7 @@ class TestArgParserClass:
         
         assert args.command == 'run'
         assert args.run_command == 'azure_load_test'
-        assert args.system_config == 'system_config.yaml'
+        assert args.system_config == 'config/system_config.yaml'  # implicit default
         assert args.scenario == 'record_size_1KB'
         assert args.token == 'test-token'
         assert args.subscription_id == 'test-sub-id'
@@ -158,7 +157,6 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--system-config', 'system_config.yaml',
             '--scenario', 'record_size_1KB',
             '--token', 'test-token',
             '--subscription-id', 'test-sub-id',
@@ -166,10 +164,14 @@ class TestArgParserClass:
             '--partition', 'test-partition',
             '--resource-group', 'test-rg',
             '--location', 'eastus',
+            '--users', '50',
+            '--spawn-rate', '10',
+            '--run-time', '5m',
+            '--engine-instances', '3',
             '--force'
         ])
         
-        assert args.system_config == 'system_config.yaml'
+        assert args.system_config == 'config/system_config.yaml'  # implicit default
         assert args.scenario == 'record_size_1KB'
         assert args.token == 'test-token'
         assert args.subscription_id == 'test-sub-id'
@@ -177,6 +179,10 @@ class TestArgParserClass:
         assert args.partition == 'test-partition'
         assert args.resource_group == 'test-rg'
         assert args.location == 'eastus'
+        assert args.users == 50
+        assert args.spawn_rate == 10
+        assert args.run_time == '5m'
+        assert args.engine_instances == 3
         assert args.force is True
 
     def test_osdu_connection_args_helper_in_local(self):
@@ -203,7 +209,6 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--system-config', 'system_config.yaml',
             '--scenario', 'record_size_1KB',
             '--token', 'test-token',
             '--subscription-id', 'test-sub',
@@ -238,7 +243,6 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--system-config', 'custom-system-config.yaml',
             '--scenario', 'record_size_1KB',
             '--token', 'test-token',
             '--subscription-id', 'test-sub'
@@ -246,7 +250,7 @@ class TestArgParserClass:
         
         assert hasattr(args, 'system_config')
         assert hasattr(args, 'scenario')
-        assert args.system_config == 'custom-system-config.yaml'
+        assert args.system_config == 'config/system_config.yaml'  # implicit default
         assert args.scenario == 'record_size_1KB'
 
     def test_invalid_command_parsing(self):

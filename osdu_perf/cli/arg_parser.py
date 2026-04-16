@@ -124,9 +124,15 @@ Examples:
             "azure_load_test", help="Run performance tests on Azure Load Testing service"
         )
 
-        self._add_split_config_args(azure_parser)
+        self._add_implicit_system_config(azure_parser)
         self._add_scenario_arg(azure_parser)
         self._add_osdu_connection_args(azure_parser)
+
+        # Locust Test Parameters (Optional)
+        azure_parser.add_argument("--users", "-u", type=int, help="Number of concurrent users (default: 100)")
+        azure_parser.add_argument("--spawn-rate", "-r", type=int, help="User spawn rate per second (default: 5)")
+        azure_parser.add_argument("--run-time", "-t", help="Test duration (default: 60m)")
+        azure_parser.add_argument("--engine-instances", "-e", type=int, help="Number of engine instances (default: 10)")
 
         # Azure Configuration
         azure_parser.add_argument("--subscription-id", help="Azure subscription ID (overrides config.yaml)")
