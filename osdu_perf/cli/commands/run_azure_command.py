@@ -1,6 +1,5 @@
 import sys
 import time
-from datetime import datetime
 from ..command_base import Command
 from ...utils.logger import get_logger
 
@@ -55,7 +54,7 @@ class AzureLoadTestCommand(Command):
             )
             
             if setup_success:
-                self._setup_azure_entitlements(runner, config, args.loadtest_name)
+                self._setup_azure_entitlements(runner, config, runner.load_test_name)
                 self._execute_load_test(runner, config)
                 return 0
             else:
@@ -99,14 +98,10 @@ class AzureLoadTestCommand(Command):
         run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
         engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
         
-        # Generate test run ID
-        test_run_id_prefix = input_handler.get_test_run_id_prefix()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        test_run_id = f"{test_run_id_prefix}_{timestamp}"
+        # Generate test name and test run ID using common function
+        test_name, test_run_id = input_handler.generate_test_name_and_run_id(sku=sku, version=version)
         
-        # Generate test name
-        test_name = input_handler.get_test_name_prefix()
-        test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
+        # Generate execution display name for Azure Load Test run
         tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
         test_description = input_handler.get_test_run_id_description()
         execution_display_name = input_handler.get_test_run_name(test_name)
@@ -130,7 +125,6 @@ class AzureLoadTestCommand(Command):
             'tags': tags,
             'test_description': test_description,
             'execution_display_name': execution_display_name,
-            'timestamp': timestamp
         }
 
 
@@ -176,11 +170,17 @@ class AzureLoadTestCommand(Command):
     def _create_azure_test_runner(self, config, args):
         """Create and configure AzureLoadTestRunner instance."""
         from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner
+        from osdu_perf.operations.input_handler import InputHandler
+        
+        # Derive Azure Load Test name from location (format: adme-perf-<location>)
+        input_handler = InputHandler(None)
+        input_handler.load_from_split_config_files(args.system_config)
+        load_test_name = input_handler.get_azure_load_test_name(config['location'])
         
         return AzureLoadTestRunner(
             subscription_id=config['subscription_id'],
             resource_group_name=config['resource_group'],
-            load_test_name=args.loadtest_name,
+            load_test_name=load_test_name,
             location=config['location'],
             tags={
                 "Environment": "Performance Testing", 

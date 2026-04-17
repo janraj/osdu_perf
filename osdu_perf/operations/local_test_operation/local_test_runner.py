@@ -247,10 +247,9 @@ class LocalTestRunner:
         run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
         tags = input_handler.get_test_scenario(requested_scenarios)
         
-        # Generate test run ID using configured prefix
-        test_run_id_prefix = input_handler.get_test_run_id_prefix()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        test_run_id = f"{test_run_id_prefix}_{timestamp}"
+        # Generate test run ID using common function (using empty sku/version for local)
+        # For local tests, only test_run_id is needed; test_name is not used
+        _test_name, test_run_id = input_handler.generate_test_name_and_run_id(sku='', version='')
         
         self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {tags}")
 

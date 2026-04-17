@@ -12,8 +12,8 @@ from .auth import AzureTokenManager
 
 class InputHandler:
     def __init__(self, environment):
-        # Setup logging
-        self.logger = logging.getLogger(self.__class__.__name__)
+        # Setup logging - use osdu_perf namespace so it inherits root logger config
+        self.logger = logging.getLogger(f"osdu_perf.{self.__class__.__name__}")
         # Detect if running in Azure Load Testing environment (production)
         self.is_azure_load_test_env = self._detect_azure_load_test_environment()
         
@@ -731,15 +731,12 @@ class InputHandler:
             
         Returns:
             Azure resource group name
-            
-        Raises:
-            ValueError: If no resource_group is configured and no CLI override provided
         """
         if cli_override:
             return cli_override
-            
+
         test_env = self.system_config.get('test_environment', {})
-        return test_env.get('resource_group', 'adme-performance-rg')
+        return test_env.get('resource_group')
 
     def get_azure_location(self, cli_override: Optional[str] = None) -> str:
         """
@@ -874,3 +871,47 @@ class InputHandler:
         if configured_scenario:
             return self.validate_scenario(configured_scenario)
         return ''
+    
+    def generate_test_name_and_run_id(self, sku: str, version: str) -> tuple[str, str]:
+        """
+        Generate test name and test run ID using test_name_prefix from selected scenario.
+        This is a common function used by both local and azure_load_tests commands.
+        
+        Args:
+            sku: OSDU performance tier/SKU (e.g., 'Flex', 'Standard')
+            version: OSDU version (e.g., '25.2.81')
+            
+        Returns:
+            Tuple of (test_name, test_run_id)
+                test_name: Generated test name using scenario prefix and SKU/version (format: prefix_sku_version)
+                test_run_id: Generated test run ID using scenario prefix and timestamp (format: prefix_timestamp)
+        """
+        # Get test name prefix from selected scenario
+        test_name_prefix = self.get_test_name_prefix()
+        
+        # Generate test name: only append sku/version if they are non-empty
+        parts = [test_name_prefix] + [p for p in [sku, version] if p and p.strip()]
+        test_name = "_".join(parts).lower().replace(".", "_")
+        self.logger.info(f"Generated test name: {test_name}")
+        
+        # Generate test run ID: prefix_timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        test_run_id = f"{test_name_prefix}_{timestamp}"
+        self.logger.info(f"Generated test run ID: {test_run_id}")
+        
+        return test_name, test_run_id
+    
+    def get_azure_load_test_name(self, location: str) -> str:
+        """
+        Generate the Azure Load Testing resource name from location.
+        Ensures standardized naming to prevent duplicate resource creation.
+        
+        Args:
+            location: Azure region/location (e.g., 'eastus', 'westus')
+            
+        Returns:
+            Standardized Azure Load Test resource name (format: adme-perf-location)
+        """
+        load_test_name = f"adme-perf-{location.lower()}"
+        self.logger.info(f"Generated Azure Load Test name: {load_test_name}")
+        return load_test_name
