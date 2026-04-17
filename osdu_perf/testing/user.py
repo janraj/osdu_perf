@@ -41,7 +41,7 @@ class PerformanceUser(HttpUser):
         self.logger = _LOGGER
         if PerformanceUser._context is None:
             PerformanceUser._context = self._build_context(environment)
-        self.context = PerformanceUser._context
+        self.osdu_context = PerformanceUser._context
 
         if not PerformanceUser._banner_printed:
             self._print_banner(environment)
@@ -51,25 +51,25 @@ class PerformanceUser(HttpUser):
     # Accessors (kept for test authors)
     # ------------------------------------------------------------------
     def get_host(self) -> str:
-        return self.context.host
+        return self.osdu_context.host
 
     def get_partition(self) -> str:
-        return self.context.partition
+        return self.osdu_context.partition
 
     def get_appid(self) -> str:
-        return self.context.app_id
+        return self.osdu_context.app_id
 
     def get_token(self) -> str:
-        return self.context.bearer_token
+        return self.osdu_context.bearer_token
 
     def get_headers(self) -> dict[str, str]:
-        return self.context.default_headers
+        return self.osdu_context.default_headers
 
     def get_request_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
-        return self.context.request_headers(extra)
+        return self.osdu_context.request_headers(extra)
 
     def new_correlation_id(self) -> str:
-        return self.context.new_correlation_id()
+        return self.osdu_context.new_correlation_id()
 
     # ------------------------------------------------------------------
     # HTTP convenience wrappers
@@ -87,8 +87,8 @@ class PerformanceUser(HttpUser):
         return self._request("DELETE", endpoint, name, headers, **kwargs)
 
     def _request(self, method: str, endpoint: str, name, headers, **kwargs):
-        url = f"{self.context.host}{endpoint}"
-        merged = self.context.request_headers()
+        url = f"{self.osdu_context.host}{endpoint}"
+        merged = self.osdu_context.request_headers()
         if headers:
             merged.update(headers)
         override = os.getenv("ADME_BEARER_TOKEN")

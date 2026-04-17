@@ -81,8 +81,6 @@ def _build_command(inputs: LocalRunInputs) -> list[str]:
         "--run-time",
         inputs.profile.run_time,
     ]
-    if inputs.scenario:
-        cmd.extend(["--tags", inputs.scenario])
     if inputs.headless:
         cmd.append("--headless")
     return cmd
