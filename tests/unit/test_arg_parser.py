@@ -149,7 +149,6 @@ class TestArgParserClass:
         assert args.scenario == 'record_size_1KB'
         assert args.token == 'test-token'
         assert args.subscription_id == 'test-sub-id'
-        assert args.force is False  # Default value
 
     def test_run_azure_command_with_all_options(self):
         """Test run azure_load_test command with all optional arguments."""
@@ -167,8 +166,7 @@ class TestArgParserClass:
             '--users', '50',
             '--spawn-rate', '10',
             '--run-time', '5m',
-            '--engine-instances', '3',
-            '--force'
+            '--engine-instances', '3'
         ])
         
         assert args.system_config == 'config/system_config.yaml'  # implicit default
@@ -183,7 +181,6 @@ class TestArgParserClass:
         assert args.spawn_rate == 10
         assert args.run_time == '5m'
         assert args.engine_instances == 3
-        assert args.force is True
 
     def test_osdu_connection_args_helper_in_local(self):
         """Test that OSDU connection args helper is used in local command."""

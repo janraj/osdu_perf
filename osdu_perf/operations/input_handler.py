@@ -12,8 +12,8 @@ from .auth import AzureTokenManager
 
 class InputHandler:
     def __init__(self, environment):
-        # Setup logging
-        self.logger = logging.getLogger(self.__class__.__name__)
+        # Setup logging - use osdu_perf namespace so it inherits root logger config
+        self.logger = logging.getLogger(f"osdu_perf.{self.__class__.__name__}")
         # Detect if running in Azure Load Testing environment (production)
         self.is_azure_load_test_env = self._detect_azure_load_test_environment()
         
@@ -473,9 +473,9 @@ class InputHandler:
         } if isinstance(profile_source, dict) else {}
         scenarios = self.test_config.get('scenarios', {}) or {}
 
-        configured_sku = (self.get_osdu_sku() or 'standard').lower()
+        configured_performance_tier = (self.get_osdu_performance_tier() or 'standard').lower()
         selected_profile = (
-            normalized_profiles.get(configured_sku)
+            normalized_profiles.get(configured_performance_tier)
             or normalized_profiles.get('standard')
             or normalized_profiles.get('medium')
             or {}
@@ -668,24 +668,27 @@ class InputHandler:
             
         return None
     
-    def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
+    def get_osdu_performance_tier(self, cli_override: Optional[str] = None) -> str:
         """
-        Get OSDU SKU value from config or CLI override.
+        Get OSDU performance tier from config or CLI override.
 
-        Internally we still use the `sku` variable name in execution paths,
-        but config can provide either `performance_tier` (preferred) or legacy `sku`.
+        Config can provide either `performance_tier` (preferred) or legacy `sku`.
         
         Args:
             cli_override: Optional CLI argument value to override config
             
         Returns:
-            OSDU SKU/performance tier value
+            OSDU performance tier value
         """
         if cli_override:
             return cli_override
             
         osdu_env = self.system_config.get('osdu_environment', {})
         return osdu_env.get('performance_tier') or osdu_env.get('sku')
+
+    def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
+        """Backward-compatible alias for get_osdu_performance_tier."""
+        return self.get_osdu_performance_tier(cli_override)
         
     def get_osdu_version(self, cli_override: Optional[str] = None) -> str:
         """
@@ -731,13 +734,10 @@ class InputHandler:
             
         Returns:
             Azure resource group name
-            
-        Raises:
-            ValueError: If no resource_group is configured and no CLI override provided
         """
         if cli_override:
             return cli_override
-            
+
         test_env = self.system_config.get('test_environment', {})
         return test_env.get('resource_group', 'adme-performance-rg')
 
@@ -874,3 +874,53 @@ class InputHandler:
         if configured_scenario:
             return self.validate_scenario(configured_scenario)
         return ''
+    
+    def generate_test_name_and_run_id(self, performance_tier: str, version: str) -> tuple[str, str]:
+        """
+        Generate test name and test run ID using test_name_prefix from selected scenario.
+        This is a common function used by both local and azure_load_tests commands.
+        
+        Args:
+            performance_tier: OSDU performance tier (e.g., 'flex', 'standard')
+            version: OSDU version (e.g., '25.2.81')
+            
+        Returns:
+            Tuple of (test_name, test_run_id)
+                test_name: Generated test name using scenario prefix and tier/version (format: prefix_tier_version)
+                test_run_id: Generated test run ID using scenario prefix, optional tier/version, and timestamp
+        """
+        # Get test name prefix from selected scenario
+        test_name_prefix = self.get_test_name_prefix()
+        
+        # Generate test name: only append tier/version if they are non-empty
+        parts = [test_name_prefix] + [p for p in [performance_tier, version] if p and p.strip()]
+        test_name = "_".join(parts).lower().replace(".", "_")
+        self.logger.info(f"Generated test name: {test_name}")
+        
+        # Generate test run ID: prefix[_tier_version]_timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_suffix_parts = [
+            str(p).strip().replace(".", "_")
+            for p in [performance_tier, version]
+            if p and str(p).strip()
+        ]
+        run_prefix = f"{test_name_prefix}_{'_'.join(run_suffix_parts)}" if run_suffix_parts else test_name_prefix
+        test_run_id = f"{run_prefix}_{timestamp}"
+        self.logger.info(f"Generated test run ID: {test_run_id}")
+        
+        return test_name, test_run_id
+    
+    def get_azure_load_test_name(self, location: str) -> str:
+        """
+        Generate the Azure Load Testing resource name from location.
+        Ensures standardized naming to prevent duplicate resource creation.
+        
+        Args:
+            location: Azure region/location (e.g., 'eastus', 'westus')
+            
+        Returns:
+            Standardized Azure Load Test resource name (format: adme-perf-location)
+        """
+        load_test_name = f"adme-perf-{location.lower()}"
+        self.logger.info(f"Generated Azure Load Test name: {load_test_name}")
+        return load_test_name

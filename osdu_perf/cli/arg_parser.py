@@ -32,8 +32,8 @@ Examples:
         parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
         parser.add_argument('--token', help='Bearer token for OSDU authentication (required)')
         parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
-        parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
-        parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
+        parser.add_argument('--performance-tier', dest='performance_tier', help='Test profile/performance tier from test_config.yaml (overrides system_config.yaml performance_tier)')
+        parser.add_argument('--version', help='Test version identifier for test names and run tracking (can be any number/string, e.g., 20260417)')
 
     def _add_split_config_args(self, parser: argparse.ArgumentParser):
         """Adds system config argument with config-folder default."""
@@ -139,13 +139,7 @@ Examples:
         azure_parser.add_argument("--resource-group", help="Azure resource group name (overrides config.yaml)")
         azure_parser.add_argument("--location", help="Azure region (e.g., eastus, westus2) (overrides config.yaml)")
 
-        # Azure Load Test Config
-        azure_parser.add_argument("--loadtest-name", default="osdu-perf-dev", help="Azure Load Testing resource name (default: osdu-perf-dev)")
-        azure_parser.add_argument("--test-name", help="Test name (auto-generated if not provided)")
-
         # Advanced Options
-        azure_parser.add_argument("--directory", "-d", default=".", help="Directory containing perf_*_test.py files (default: current)")
-        azure_parser.add_argument("--force", action="store_true", help="Force overwrite existing tests without prompting")
         azure_parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
 
         azure_parser.set_defaults(handler="run_azure")
