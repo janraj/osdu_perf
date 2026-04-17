@@ -51,6 +51,7 @@ def load_from_paths(
         profiles=_parse_profiles(test),
         scenario_defaults=_parse_scenario_defaults(test),
         run_scenario=_parse_run_scenario(test),
+        test_run_id_prefix=_clean_str(test.get("test_run_id_prefix")) or "perf",
         azure_config_path=str(azure_config_path) if azure_config_path else None,
         test_config_path=str(test_config_path) if test_config_path else None,
     )

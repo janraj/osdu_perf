@@ -35,6 +35,7 @@ class AzureRunInputs:
     profile: PerformanceProfile
     labels: dict[str, str]
     scenario: str
+    test_run_id_prefix: str = "perf"
 
 
 class AzureRunner:
@@ -164,7 +165,8 @@ class AzureRunner:
 # ----------------------------------------------------------------------
 def _build_test_name(inputs: AzureRunInputs) -> str:
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    raw = f"{inputs.scenario}_perf_{timestamp}"
+    prefix = inputs.test_run_id_prefix or "perf"
+    raw = f"{inputs.scenario}_{prefix}_{timestamp}"
     return _slug(raw)
 
 

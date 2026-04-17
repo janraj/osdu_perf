@@ -129,7 +129,8 @@ def _short_hostname() -> str:
 
 def _generate_test_run_id(config: AppConfig, scenario: str) -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return f"{scenario}_perf_{stamp}"
+    prefix = getattr(config, "test_run_id_prefix", None) or "perf"
+    return f"{scenario}_{prefix}_{stamp}"
 
 
 __all__ = ["RequestContext"]

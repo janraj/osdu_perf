@@ -11,7 +11,7 @@ from ...azure import AzureRunner
 from ...azure.runner import AzureRunInputs
 from ...config import load_config
 from ...errors import ConfigError
-from ._run_common import apply_profile_overrides
+from ._run_common import apply_profile_overrides, resolved_test_run_id_prefix
 
 
 def run(args: argparse.Namespace) -> int:
@@ -33,6 +33,9 @@ def run(args: argparse.Namespace) -> int:
 
     resolved = config.resolve(scenario=args.scenario, profile=args.profile)
     profile = apply_profile_overrides(resolved.profile, args)
+    prefix = resolved_test_run_id_prefix(resolved, args)
+    if prefix != config.test_run_id_prefix:
+        config = replace(config, test_run_id_prefix=prefix)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = AzureRunInputs(
@@ -44,6 +47,7 @@ def run(args: argparse.Namespace) -> int:
         profile=profile,
         labels={str(k): str(v) for k, v in resolved.labels.items()},
         scenario=resolved.scenario,
+        test_run_id_prefix=prefix,
     )
     runner = AzureRunner(config)
     result = runner.run(inputs)

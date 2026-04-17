@@ -9,7 +9,7 @@ from ...auth import TokenProvider
 from ...config import load_config
 from ...errors import ConfigError
 from ...local import LocalRunInputs, LocalRunner
-from ._run_common import apply_profile_overrides
+from ._run_common import apply_profile_overrides, resolved_test_run_id_prefix
 
 
 def run(args: argparse.Namespace) -> int:
@@ -25,6 +25,7 @@ def run(args: argparse.Namespace) -> int:
 
     resolved = config.resolve(scenario=args.scenario, profile=args.profile)
     profile = apply_profile_overrides(resolved.profile, args)
+    prefix = resolved_test_run_id_prefix(resolved, args)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = LocalRunInputs(
@@ -36,5 +37,6 @@ def run(args: argparse.Namespace) -> int:
         profile=profile,
         locustfile=project_dir / "locustfile.py",
         headless=args.headless,
+        test_run_id_prefix=prefix,
     )
     return LocalRunner(config).run(inputs)

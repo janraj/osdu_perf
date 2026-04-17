@@ -27,6 +27,7 @@ class LocalRunInputs:
     profile: PerformanceProfile
     locustfile: Path
     headless: bool = False
+    test_run_id_prefix: str = "perf"
 
 
 class LocalRunner:
@@ -89,7 +90,8 @@ def _build_command(inputs: LocalRunInputs) -> list[str]:
 
 def _run_id(inputs: LocalRunInputs) -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return f"{inputs.scenario}_perf_{stamp}"
+    prefix = inputs.test_run_id_prefix or "perf"
+    return f"{inputs.scenario}_{prefix}_{stamp}"
 
 
 __all__ = ["LocalRunner", "LocalRunInputs"]

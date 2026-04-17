@@ -10,6 +10,11 @@ osdu_environment:
 labels:
   version: "25.2.35"
 
+# Token used to build the generated test run id:
+#   <scenario>_<test_run_id_prefix>_<UTC_YYYYMMDDHHMMSS>
+# Override per invocation with `--test-run-id-prefix`.
+test_run_id_prefix: "perf"
+
 # Named load shapes. Pick one via --profile, via scenario_defaults, or
 # via run_scenario. Naming convention: U<users>_T<duration>.
 profiles:

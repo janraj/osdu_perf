@@ -132,6 +132,13 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         help="Override the resolved profile's 'engine_instances' (ALT only).",
     )
+    parser.add_argument(
+        "--test-run-id-prefix",
+        help=(
+            "Override the 'test_run_id_prefix' from test_config.yaml "
+            "(default 'perf'). The generated id is '<scenario>_<prefix>_<UTC_ts>'."
+        ),
+    )
 
 
 __all__ = ["build_parser"]

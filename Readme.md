@@ -361,6 +361,9 @@ osdu_perf run local \
   profile. Mix and match: any flag you pass replaces that single field,
   the rest come from the profile. `--engine-instances` is ignored by
   `run local`.
+* `--test-run-id-prefix` *(optional)* — overrides
+  `test_run_id_prefix` in `test_config.yaml` (default `perf`). Used in
+  the generated `<scenario>_<prefix>_<UTC_timestamp>` test-run id.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.
@@ -393,10 +396,24 @@ Prints the installed version.
 Every run gets a unique id of the form:
 
 ```
-<scenario>_perf_<YYYYMMDDHHMMSS>
+<scenario>_<test_run_id_prefix>_<YYYYMMDDHHMMSS>
 ```
 
-where the timestamp is UTC. The id:
+`test_run_id_prefix` defaults to `perf` and can be changed globally in
+`test_config.yaml`:
+
+```yaml
+test_run_id_prefix: "smoke"
+```
+
+or per invocation:
+
+```bash
+osdu_perf run local  --scenario search_query --test-run-id-prefix nightly
+osdu_perf run azure  --scenario search_query --test-run-id-prefix release-25.2
+```
+
+The timestamp is UTC. The id:
 
 * becomes the Azure Load Test `testId` / `testRunId` (slugified to
   `[a-z0-9_-]`) for `osdu_perf run azure`;

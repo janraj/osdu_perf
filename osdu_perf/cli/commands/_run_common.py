@@ -31,4 +31,14 @@ def apply_profile_overrides(
     return replace(profile, **overrides)
 
 
-__all__ = ["apply_profile_overrides"]
+def resolved_test_run_id_prefix(resolved, args: argparse.Namespace) -> str:
+    """Return the test_run_id_prefix, letting ``--test-run-id-prefix`` win."""
+    cli = getattr(args, "test_run_id_prefix", None)
+    if cli:
+        cleaned = str(cli).strip()
+        if cleaned:
+            return cleaned
+    return getattr(resolved, "test_run_id_prefix", None) or "perf"
+
+
+__all__ = ["apply_profile_overrides", "resolved_test_run_id_prefix"]

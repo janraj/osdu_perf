@@ -109,6 +109,7 @@ class AppConfig:
     profiles: dict[str, PerformanceProfile]
     scenario_defaults: dict[str, ScenarioDefault]
     run_scenario: RunScenario
+    test_run_id_prefix: str = "perf"
     azure_config_path: str | None = None
     test_config_path: str | None = None
 
@@ -177,6 +178,7 @@ class AppConfig:
             profile_name=profile_name,
             profile=self.profiles[key],
             labels=merged_labels,
+            test_run_id_prefix=self.test_run_id_prefix,
         )
 
 
@@ -188,6 +190,7 @@ class ResolvedRun:
     profile_name: str
     profile: PerformanceProfile
     labels: dict[str, Any]
+    test_run_id_prefix: str = "perf"
 
 
 __all__ = [
