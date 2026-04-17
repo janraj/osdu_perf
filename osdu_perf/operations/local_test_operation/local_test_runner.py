@@ -7,7 +7,6 @@ using Locust with proper OSDU authentication and configuration.
 
 import os
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
@@ -239,20 +238,21 @@ class LocalTestRunner:
         host, partition, app_id, token = self._extract_osdu_parameters(args)
         
         requested_scenarios = getattr(args, 'scenario', None)
-        valid_scenario = input_handler.validate_scenario(requested_scenarios)
-        input_handler.set_selected_scenario(valid_scenario or None)
-
-        users = input_handler.get_users(getattr(args, 'users', None))
-        spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
-        run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
-        tags = input_handler.get_test_scenario(requested_scenarios)
+        execution_settings = input_handler.resolve_test_execution_settings(
+            scenario=requested_scenarios,
+            users=getattr(args, 'users', None),
+            spawn_rate=getattr(args, 'spawn_rate', None),
+            run_time=getattr(args, 'run_time', None),
+            engine_instances=getattr(args, 'engine_instances', None),
+        )
         
-        # Generate test run ID using configured prefix
-        test_run_id_prefix = input_handler.get_test_run_id_prefix()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        test_run_id = f"{test_run_id_prefix}_{timestamp}"
+        # Generate test run ID from shared test name format so prefix handling matches Azure.
+        sku = input_handler.get_osdu_sku(getattr(args, 'sku', None))
+        version = input_handler.get_osdu_version(getattr(args, 'version', None))
+        test_name = input_handler.generate_test_name(sku=sku, version=version)
+        test_run_id = input_handler.generate_test_run_id(prefix=test_name)
         
-        self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {tags}")
+        self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {execution_settings['tags']}")
 
         if token is None:
             #need to make it better.
@@ -265,10 +265,10 @@ class LocalTestRunner:
             app_id=app_id,
             token=token,
             test_run_id=test_run_id,
-            users=users,
-            spawn_rate=spawn_rate,
-            run_time=run_time,
-            tags=tags
+            users=execution_settings['users'],
+            spawn_rate=execution_settings['spawn_rate'],
+            run_time=execution_settings['run_time'],
+            tags=execution_settings['tags']
         )
         
         return config

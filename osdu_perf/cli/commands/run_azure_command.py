@@ -1,6 +1,5 @@
 import sys
 import time
-from datetime import datetime
 from ..command_base import Command
 from ...utils.logger import get_logger
 
@@ -89,25 +88,24 @@ class AzureLoadTestCommand(Command):
         resource_group = args.resource_group or input_handler.get_azure_resource_group()
         location = args.location or input_handler.get_azure_location()
         
-        # Scenario selection must match test config and be exactly one value.
-        valid_scenario = input_handler.validate_scenario(getattr(args, 'scenario', None))
-        input_handler.set_selected_scenario(valid_scenario or None)
+        execution_settings = input_handler.resolve_test_execution_settings(
+            scenario=getattr(args, 'scenario', None),
+            users=getattr(args, 'users', None),
+            spawn_rate=getattr(args, 'spawn_rate', None),
+            run_time=getattr(args, 'run_time', None),
+            engine_instances=getattr(args, 'engine_instances', None),
+        )
 
-        # Get test parameters
-        users = input_handler.get_users(getattr(args, 'users', None))
-        spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
-        run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
-        engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
-        
-        # Generate test run ID
-        test_run_id_prefix = input_handler.get_test_run_id_prefix()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        test_run_id = f"{test_run_id_prefix}_{timestamp}"
-        
-        # Generate test name
-        test_name = input_handler.get_test_name_prefix()
-        test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
-        tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
+        # Generate test name using shared formatter to keep local and Azure consistent.
+        if getattr(args, 'test_name', None):
+            test_name = str(args.test_name).lower().replace('.', '_')
+        else:
+            test_name = input_handler.generate_test_name(sku=sku, version=version)
+
+        # Keep Azure test run metadata prefix behavior while using shared ID generator.
+        test_run_id = input_handler.generate_test_run_id(prefix=input_handler.get_test_run_id_prefix())
+
+        tags = execution_settings['tags']
         test_description = input_handler.get_test_run_id_description()
         execution_display_name = input_handler.get_test_run_name(test_name)
         
@@ -121,16 +119,15 @@ class AzureLoadTestCommand(Command):
             'subscription_id': subscription_id,
             'resource_group': resource_group,
             'location': location,
-            'users': users,
-            'spawn_rate': spawn_rate,
-            'run_time': run_time,
-            'engine_instances': engine_instances,
+            'users': execution_settings['users'],
+            'spawn_rate': execution_settings['spawn_rate'],
+            'run_time': execution_settings['run_time'],
+            'engine_instances': execution_settings['engine_instances'],
             'test_run_id': test_run_id,
             'test_name': test_name,
             'tags': tags,
             'test_description': test_description,
-            'execution_display_name': execution_display_name,
-            'timestamp': timestamp
+            'execution_display_name': execution_display_name
         }
 
 

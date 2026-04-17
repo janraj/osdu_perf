@@ -768,6 +768,25 @@ class InputHandler:
         test_settings = self.get_test_settings()
         return test_settings.get('test_name_prefix', 'osdu_perf_test')
 
+    def generate_test_name(self, sku: Optional[str] = None, version: Optional[str] = None) -> str:
+        """
+        Build a normalized test name from configured prefix and optional sku/version.
+
+        Args:
+            sku: Optional SKU/performance tier value to append
+            version: Optional version value to append
+
+        Returns:
+            Normalized test name (lowercase with dots replaced by underscores).
+        """
+        parts = [self.get_test_name_prefix()]
+        if sku:
+            parts.append(str(sku))
+        if version:
+            parts.append(str(version))
+
+        return "_".join(parts).lower().replace(".", "_")
+
     def get_test_run_id_description(self) -> str:
         """
         Get test run ID description for performance tests.
@@ -855,6 +874,48 @@ class InputHandler:
         timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
         max_base_length = max_length - len(f"{timestamp}")
         return f"{test_name[:max_base_length]}-{timestamp}"
+
+    def generate_test_run_id(
+        self,
+        prefix: Optional[str] = None,
+        sku: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> str:
+        """
+        Generate a timestamped test run ID.
+
+        If no explicit prefix is supplied, it derives one from the shared
+        test name formatter so local/Azure naming stays aligned.
+        """
+        run_prefix = prefix or self.generate_test_name(sku=sku, version=version)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{run_prefix}_{timestamp}"
+
+    def resolve_test_execution_settings(
+        self,
+        scenario: Optional[List[str] | str] = None,
+        users: Optional[int] = None,
+        spawn_rate: Optional[int] = None,
+        run_time: Optional[str] = None,
+        engine_instances: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resolve scenario and load profile values in one place.
+
+        Returns:
+            Dictionary with validated scenario, tags and load settings.
+        """
+        valid_scenario = self.validate_scenario(scenario)
+        self.set_selected_scenario(valid_scenario or None)
+
+        return {
+            'scenario': valid_scenario,
+            'tags': self.get_test_scenario(scenario),
+            'users': self.get_users(users),
+            'spawn_rate': self.get_spawn_rate(spawn_rate),
+            'run_time': self.get_run_time(run_time),
+            'engine_instances': self.get_engine_instances(engine_instances),
+        }
 
     def get_test_scenario(self, cli_override: Optional[List[str] | str] = None) -> str:
         """
