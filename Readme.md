@@ -340,6 +340,10 @@ Spawn Locust as a subprocess.
 osdu_perf run local \
   [--scenario=<name>]      \
   [--profile=<name>]       \
+  [--users=N]              \
+  [--spawn-rate=N]         \
+  [--run-time=DURATION]    \
+  [--engine-instances=N]   \  # ignored by `run local`
   [--host=URL]             \
   [--partition=ID]         \
   [--app-id=GUID]          \
@@ -352,6 +356,11 @@ osdu_perf run local \
   `run_scenario.scenario` in `test_config.yaml`.
 * `--profile` *(optional)* — overrides any default coming from
   `scenario_defaults.<scenario>.profile` or `run_scenario.profile`.
+* `--users`, `--spawn-rate`, `--run-time`, `--engine-instances`
+  *(optional)* — per-invocation overrides that win over the resolved
+  profile. Mix and match: any flag you pass replaces that single field,
+  the rest come from the profile. `--engine-instances` is ignored by
+  `run local`.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.
@@ -365,6 +374,10 @@ ALT managed identity, start the run.
 osdu_perf run azure \
   [--scenario=<name>]          \
   [--profile=<name>]           \
+  [--users=N]                  \
+  [--spawn-rate=N]             \
+  [--run-time=DURATION]        \
+  [--engine-instances=N]       \
   [--load-test-name=NAME]      \  # overrides azure_load_test.name
   [--host / --partition / --app-id / --bearer-token / --directory]
 ```
@@ -372,6 +385,31 @@ osdu_perf run azure \
 ### `osdu_perf version`
 
 Prints the installed version.
+
+---
+
+## Test run id
+
+Every run gets a unique id of the form:
+
+```
+<scenario>_perf_<YYYYMMDDHHMMSS>
+```
+
+where the timestamp is UTC. The id:
+
+* becomes the Azure Load Test `testId` / `testRunId` (slugified to
+  `[a-z0-9_-]`) for `osdu_perf run azure`;
+* is exported to Locust as the `TEST_RUN_ID` env var for `run local`;
+* is used as the base of every request's `correlation-id` header
+  (`{test_run_id}-{short-hostname}-{counter}`), so you can correlate
+  OSDU service-side logs with a specific run;
+* is written into every Kusto telemetry row in the `TestRunId`
+  column.
+
+You can force a custom id by setting `TEST_RUN_ID_NAME` or
+`TEST_RUN_ID` in the environment before invoking `osdu_perf run` —
+handy when the CI system already has a build id you want to reuse.
 
 ---
 

@@ -112,5 +112,26 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
         help="Pre-acquired OSDU bearer token (bypasses az login).",
     )
 
+    # Per-invocation load-shape overrides. Each wins over the resolved profile.
+    parser.add_argument(
+        "--users",
+        type=int,
+        help="Override the resolved profile's 'users' (concurrent Locust users).",
+    )
+    parser.add_argument(
+        "--spawn-rate",
+        type=int,
+        help="Override the resolved profile's 'spawn_rate' (users started per second).",
+    )
+    parser.add_argument(
+        "--run-time",
+        help="Override the resolved profile's 'run_time' (e.g. '15m', '90s', '2h').",
+    )
+    parser.add_argument(
+        "--engine-instances",
+        type=int,
+        help="Override the resolved profile's 'engine_instances' (ALT only).",
+    )
+
 
 __all__ = ["build_parser"]

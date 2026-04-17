@@ -35,6 +35,36 @@ def test_run_azure_forwards_flags() -> None:
     assert args.load_test_name == "alt-1"
 
 
+def test_run_local_load_shape_overrides_parse() -> None:
+    parser = build_parser()
+    args = parser.parse_args([
+        "run", "local",
+        "--users", "42",
+        "--spawn-rate", "3",
+        "--run-time", "90s",
+        "--engine-instances", "2",
+    ])
+    assert args.users == 42
+    assert args.spawn_rate == 3
+    assert args.run_time == "90s"
+    assert args.engine_instances == 2
+
+
+def test_apply_profile_overrides_replaces_fields() -> None:
+    import argparse
+
+    from osdu_perf.cli.commands._run_common import apply_profile_overrides
+    from osdu_perf.config import PerformanceProfile
+
+    base = PerformanceProfile(users=10, spawn_rate=2, run_time="60s", engine_instances=1)
+    args = argparse.Namespace(users=100, spawn_rate=None, run_time="5m", engine_instances=None)
+    result = apply_profile_overrides(base, args)
+    assert result.users == 100
+    assert result.spawn_rate == 2        # untouched
+    assert result.run_time == "5m"
+    assert result.engine_instances == 1  # untouched
+
+
 def test_version_command() -> None:
     parser = build_parser()
     args = parser.parse_args(["version"])

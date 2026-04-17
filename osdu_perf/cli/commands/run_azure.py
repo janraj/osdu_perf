@@ -11,6 +11,7 @@ from ...azure import AzureRunner
 from ...azure.runner import AzureRunInputs
 from ...config import load_config
 from ...errors import ConfigError
+from ._run_common import apply_profile_overrides
 
 
 def run(args: argparse.Namespace) -> int:
@@ -31,6 +32,7 @@ def run(args: argparse.Namespace) -> int:
         raise ConfigError("host, partition, and app_id must all be provided.")
 
     resolved = config.resolve(scenario=args.scenario, profile=args.profile)
+    profile = apply_profile_overrides(resolved.profile, args)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = AzureRunInputs(
@@ -39,7 +41,7 @@ def run(args: argparse.Namespace) -> int:
         app_id=app_id,
         osdu_token=bearer,
         test_directory=project_dir,
-        profile=resolved.profile,
+        profile=profile,
         labels={str(k): str(v) for k, v in resolved.labels.items()},
         scenario=resolved.scenario,
     )

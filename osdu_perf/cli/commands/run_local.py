@@ -9,6 +9,7 @@ from ...auth import TokenProvider
 from ...config import load_config
 from ...errors import ConfigError
 from ...local import LocalRunInputs, LocalRunner
+from ._run_common import apply_profile_overrides
 
 
 def run(args: argparse.Namespace) -> int:
@@ -23,6 +24,7 @@ def run(args: argparse.Namespace) -> int:
         raise ConfigError("host, partition, and app_id must all be provided.")
 
     resolved = config.resolve(scenario=args.scenario, profile=args.profile)
+    profile = apply_profile_overrides(resolved.profile, args)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = LocalRunInputs(
@@ -31,7 +33,7 @@ def run(args: argparse.Namespace) -> int:
         app_id=app_id,
         bearer_token=bearer,
         scenario=resolved.scenario,
-        profile=resolved.profile,
+        profile=profile,
         locustfile=project_dir / "locustfile.py",
         headless=args.headless,
     )
