@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.39",
+    version="2.0.0",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
@@ -29,7 +29,7 @@ setup(
         "azure-mgmt-core>=1.4.0",
         "azure-mgmt-resource>=23.0.0",
         "azure-mgmt-loadtesting>=1.0.0",
-        "azure-developer-loadtesting>=1.0.0",
+        "azure-developer-loadtesting>=1.2.0b1",
         "requests>=2.28.0",
         "pyyaml>=6.0",
         "azure-kusto-data>=5.0.0",
@@ -58,7 +58,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "osdu_perf=osdu_perf.cli.main:main",
+            "osdu_perf=osdu_perf.cli:main",
         ],
     },
     include_package_data=True,

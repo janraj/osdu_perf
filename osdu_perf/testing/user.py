@@ -1,0 +1,187 @@
+""":class:`PerformanceUser` — the Locust user subclass exposed to test authors."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from locust import HttpUser, between, events
+
+from ..config import load_config
+from ..errors import ConfigError
+from ..kusto import KustoIngestor
+from ..telemetry import get_logger
+from ._collector import collect_payload
+from .context import RequestContext
+
+_LOGGER = get_logger("testing.user")
+
+
+class PerformanceUser(HttpUser):
+    """Base class for performance tests.
+
+    Subclass in your ``locustfile.py`` and add ``@task`` methods. The class
+    wires up OSDU authentication, a per-request correlation-id, and Kusto
+    telemetry at test-stop.
+    """
+
+    abstract = True
+    wait_time = between(1, 3)
+    host = "https://localhost"
+
+    # Shared across user instances within this worker.
+    _context: RequestContext | None = None
+    _banner_printed: bool = False
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+    def __init__(self, environment: Any) -> None:
+        super().__init__(environment)
+        self.logger = _LOGGER
+        if PerformanceUser._context is None:
+            PerformanceUser._context = self._build_context(environment)
+        self.osdu_context = PerformanceUser._context
+
+        if not PerformanceUser._banner_printed:
+            self._print_banner(environment)
+            PerformanceUser._banner_printed = True
+
+    # ------------------------------------------------------------------
+    # Accessors (kept for test authors)
+    # ------------------------------------------------------------------
+    def get_host(self) -> str:
+        return self.osdu_context.host
+
+    def get_partition(self) -> str:
+        return self.osdu_context.partition
+
+    def get_appid(self) -> str:
+        return self.osdu_context.app_id
+
+    def get_token(self) -> str:
+        return self.osdu_context.bearer_token
+
+    def get_headers(self) -> dict[str, str]:
+        return self.osdu_context.default_headers
+
+    def get_request_headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        return self.osdu_context.request_headers(extra)
+
+    def new_correlation_id(self) -> str:
+        return self.osdu_context.new_correlation_id()
+
+    # ------------------------------------------------------------------
+    # HTTP convenience wrappers
+    # ------------------------------------------------------------------
+    def get(self, endpoint: str, name: str | None = None, headers=None, **kwargs):
+        return self._request("GET", endpoint, name, headers, **kwargs)
+
+    def post(self, endpoint: str, data=None, name: str | None = None, headers=None, **kwargs):
+        return self._request("POST", endpoint, name, headers, json=data, **kwargs)
+
+    def put(self, endpoint: str, data=None, name: str | None = None, headers=None, **kwargs):
+        return self._request("PUT", endpoint, name, headers, json=data, **kwargs)
+
+    def delete(self, endpoint: str, name: str | None = None, headers=None, **kwargs):
+        return self._request("DELETE", endpoint, name, headers, **kwargs)
+
+    def _request(self, method: str, endpoint: str, name, headers, **kwargs):
+        url = f"{self.osdu_context.host}{endpoint}"
+        merged = self.osdu_context.request_headers()
+        if headers:
+            merged.update(headers)
+        override = os.getenv("ADME_BEARER_TOKEN")
+        if override:
+            merged["Authorization"] = f"Bearer {override}"
+
+        with self.client.request(
+            method=method,
+            url=url,
+            headers=merged,
+            name=name,
+            catch_response=True,
+            **kwargs,
+        ) as response:
+            if not response.ok:
+                response.failure(f"{method} {url} failed with {response.status_code}")
+            return response
+
+    # ------------------------------------------------------------------
+    # Context + telemetry helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _build_context(environment: Any) -> RequestContext:
+        scenario = os.getenv("TEST_SCENARIO", "")
+        parsed_options = getattr(environment, "parsed_options", None)
+        if parsed_options is not None and getattr(parsed_options, "scenario", None):
+            scenario = parsed_options.scenario
+        config = load_config()
+        if not scenario:
+            scenario = config.run_scenario.scenario or ""
+        if not scenario:
+            raise ConfigError(
+                "No scenario selected. Pass --scenario to the CLI, set "
+                "TEST_SCENARIO in the environment, or set "
+                "'run_scenario.scenario' in test_config.yaml."
+            )
+        return RequestContext.from_environment(config, scenario=scenario)
+
+    @staticmethod
+    def _print_banner(environment: Any) -> None:
+        ctx = PerformanceUser._context
+        if ctx is None:
+            return
+        parsed_options = getattr(environment, "parsed_options", None)
+
+        rows = [
+            ("Test Run ID", ctx.test_run_id),
+            ("Environment", "Azure Load Test" if os.getenv("AZURE_LOAD_TEST", "").lower() == "true" else "Local"),
+            ("Host", ctx.host),
+            ("Partition", ctx.partition),
+            ("App ID", ctx.app_id),
+            ("Scenario", ctx.scenario),
+            ("Users", getattr(parsed_options, "num_users", "-")),
+            ("Spawn rate", getattr(parsed_options, "spawn_rate", "-")),
+            ("Run time", getattr(parsed_options, "run_time", "-") or "-"),
+        ]
+        metadata = ctx.labels()
+        if metadata:
+            rows.append(("Metadata", ""))
+            rows.extend((f"  {k}", v) for k, v in metadata.items())
+
+        key_w = max(len(k) for k, _ in rows)
+        val_w = max(len(str(v)) for _, v in rows)
+        border = "=" * (key_w + val_w + 7)
+        _LOGGER.info(border)
+        _LOGGER.info("  OSDU Performance Test — Starting")
+        _LOGGER.info(border)
+        for key, value in rows:
+            _LOGGER.info("  %s : %s", key.ljust(key_w), value)
+        _LOGGER.info(border)
+
+
+# ----------------------------------------------------------------------
+# Event listeners at module scope so they are registered on import.
+# ----------------------------------------------------------------------
+@events.test_stop.add_listener
+def _on_test_stop(environment, **_kwargs):
+    ctx = PerformanceUser._context
+    if ctx is None:
+        _LOGGER.debug("test_stop: no RequestContext — nothing to ingest")
+        return
+    kusto_cfg = ctx.config.kusto_export
+    if not kusto_cfg.is_configured:
+        _LOGGER.info("Kusto not configured — skipping telemetry ingestion")
+        return
+    try:
+        ingestor = KustoIngestor(
+            kusto_cfg,
+            use_managed_identity=os.getenv("AZURE_LOAD_TEST", "").lower() == "true",
+        )
+        ingestor.ingest(collect_payload(environment, ctx))
+    except Exception as exc:  # pragma: no cover - best-effort
+        _LOGGER.error("Kusto ingestion failed: %s", exc)
+
+
+__all__ = ["PerformanceUser"]
