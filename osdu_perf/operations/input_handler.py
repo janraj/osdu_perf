@@ -739,7 +739,7 @@ class InputHandler:
             return cli_override
 
         test_env = self.system_config.get('test_environment', {})
-        return test_env.get('resource_group')
+        return test_env.get('resource_group', 'adme-performance-rg')
 
     def get_azure_location(self, cli_override: Optional[str] = None) -> str:
         """
