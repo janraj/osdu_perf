@@ -88,6 +88,27 @@ def test_apply_profile_overrides_replaces_fields() -> None:
     )
 
 
+def test_parse_label_overrides() -> None:
+    import argparse
+
+    import pytest
+
+    from osdu_perf.cli.commands._run_common import parse_label_overrides
+
+    # Empty -> empty
+    assert parse_label_overrides(argparse.Namespace(label=[])) == {}
+    # Multiple entries, trimming, and value may contain '='
+    result = parse_label_overrides(
+        argparse.Namespace(label=["build=42", "region=eastus", "raw=a=b"])
+    )
+    assert result == {"build": "42", "region": "eastus", "raw": "a=b"}
+    # Malformed
+    with pytest.raises(ValueError):
+        parse_label_overrides(argparse.Namespace(label=["nope"]))
+    with pytest.raises(ValueError):
+        parse_label_overrides(argparse.Namespace(label=["=empty-key"]))
+
+
 def test_version_command() -> None:
     parser = build_parser()
     args = parser.parse_args(["version"])

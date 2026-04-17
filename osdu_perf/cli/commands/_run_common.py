@@ -41,4 +41,29 @@ def resolved_test_run_id_prefix(resolved, args: argparse.Namespace) -> str:
     return getattr(resolved, "test_run_id_prefix", None) or "perf"
 
 
-__all__ = ["apply_profile_overrides", "resolved_test_run_id_prefix"]
+def parse_label_overrides(args: argparse.Namespace) -> dict[str, str]:
+    """Parse ``--label key=value`` flags into a dict.
+
+    Raises ``ValueError`` on any malformed entry.
+    """
+    raw = getattr(args, "label", None) or []
+    out: dict[str, str] = {}
+    for item in raw:
+        if "=" not in item:
+            raise ValueError(
+                f"--label expects KEY=VALUE, got '{item}'."
+            )
+        key, _, value = item.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise ValueError(f"--label has empty key: '{item}'.")
+        out[key] = value
+    return out
+
+
+__all__ = [
+    "apply_profile_overrides",
+    "parse_label_overrides",
+    "resolved_test_run_id_prefix",
+]

@@ -106,11 +106,21 @@ class RequestContext:
     # Labels
     # ------------------------------------------------------------------
     def labels(self) -> dict[str, Any]:
-        """Merged top-level ``labels`` + per-scenario ``metadata``."""
+        """Merged top-level ``labels`` + per-scenario ``metadata`` + CLI extras."""
         merged = dict(self.config.labels)
         default = self.config.scenario_defaults.get(self.scenario)
         if default is not None:
             merged.update(default.metadata)
+        extra = os.getenv("OSDU_PERF_EXTRA_LABELS")
+        if extra:
+            try:
+                import json
+
+                parsed = json.loads(extra)
+                if isinstance(parsed, dict):
+                    merged.update({str(k): v for k, v in parsed.items()})
+            except (ValueError, TypeError):
+                pass
         return merged
 
 

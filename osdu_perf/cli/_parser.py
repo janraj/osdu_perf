@@ -139,6 +139,17 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
             "(default 'perf'). The generated id is '<scenario>_<prefix>_<UTC_ts>'."
         ),
     )
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Extra label merged on top of resolved labels (top-level 'labels' + "
+            "scenario metadata + run_scenario.labels). Repeatable: "
+            "--label build=42 --label region=eastus."
+        ),
+    )
 
 
 __all__ = ["build_parser"]

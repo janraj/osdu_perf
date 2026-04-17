@@ -364,6 +364,10 @@ osdu_perf run local \
 * `--test-run-id-prefix` *(optional)* — overrides
   `test_run_id_prefix` in `test_config.yaml` (default `perf`). Used in
   the generated `<scenario>_<prefix>_<UTC_timestamp>` test-run id.
+* `--label KEY=VALUE` *(optional, repeatable)* — extra telemetry
+  labels merged on top of the resolved labels (top-level `labels:` +
+  `scenario_defaults.<scenario>.metadata` + `run_scenario.labels`).
+  Example: `--label build=42 --label region=eastus`.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.

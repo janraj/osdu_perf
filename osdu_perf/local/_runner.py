@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +28,7 @@ class LocalRunInputs:
     locustfile: Path
     headless: bool = False
     test_run_id_prefix: str = "perf"
+    extra_labels: dict[str, str] = field(default_factory=dict)
 
 
 class LocalRunner:
@@ -55,6 +56,10 @@ class LocalRunner:
         )
         if inputs.bearer_token:
             env["ADME_BEARER_TOKEN"] = inputs.bearer_token
+        if inputs.extra_labels:
+            import json
+
+            env["OSDU_PERF_EXTRA_LABELS"] = json.dumps(inputs.extra_labels)
 
         command = _build_command(inputs)
         _LOGGER.info("Executing: %s", " ".join(command))
