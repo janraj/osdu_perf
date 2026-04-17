@@ -1,4 +1,5 @@
-# CLI module initialization
-from .main import main
+"""Command-line interface for ``osdu_perf``."""
 
-__all__ = ['main']
+from ._dispatch import main
+
+__all__ = ["main"]

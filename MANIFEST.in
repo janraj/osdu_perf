@@ -1,7 +1,7 @@
 include README.md
 include LICENSE
 include requirements.txt
-recursive-include osdu_perf/templates *.py
+recursive-include osdu_perf/scaffolding/templates *.tpl
 recursive-include osdu_perf *.py
 global-exclude *.pyc
 global-exclude __pycache__

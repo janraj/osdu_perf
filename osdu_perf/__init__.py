@@ -1,26 +1,14 @@
-"""
-OSDU Performance Testing Framework - Core Library
-"""
+"""OSDU performance testing framework."""
 
-from .operations.base_service import BaseService
-from .operations.service_orchestrator import ServiceOrchestrator
-from .operations.input_handler import InputHandler
-from .operations.auth import AzureTokenManager
-from .utils.environment import detect_environment
-from .operations.init_operation import InitRunner
-from .locust_integration.user_base import PerformanceUser
-
-
-__version__ = "2.0.0"
-__author__ = "Janraj CJ"
-__email__ = "janrajcj@microsoft.com"
+from ._version import __version__
+from .config import AppConfig, load_config
+from .testing import BaseService, PerformanceUser, ServiceRegistry
 
 __all__ = [
-    "InitRunner",
+    "__version__",
+    "AppConfig",
     "BaseService",
-    "ServiceOrchestrator", 
-    "InputHandler",
-    "AzureTokenManager",
     "PerformanceUser",
-    "detect_environment"
+    "ServiceRegistry",
+    "load_config",
 ]
