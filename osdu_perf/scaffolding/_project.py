@@ -77,7 +77,16 @@ class Scaffolder:
         self._write("azure_config.yaml.tpl", self._root / "config" / "azure_config.yaml", substitutions)
         self._write("test_config.yaml.tpl", self._root / "config" / "test_config.yaml", substitutions)
         self._write("locustfile.py.tpl", self._root / "locustfile.py", substitutions)
-        self._write("perf_service_test.py.tpl", self._root / f"perf_{sample.name}_test.py", substitutions)
+        # Prefer a sample-specific perf test template
+        # (``perf_<sample>_test.py.tpl``) when it exists; otherwise fall
+        # back to the generic ``perf_service_test.py.tpl``.
+        sample_specific = f"perf_{sample.name}_test.py.tpl"
+        perf_template = (
+            sample_specific
+            if _template_exists(sample_specific)
+            else "perf_service_test.py.tpl"
+        )
+        self._write(perf_template, self._root / f"perf_{sample.name}_test.py", substitutions)
         self._write("requirements.txt.tpl", self._root / "requirements.txt", substitutions)
         self._write("README.md.tpl", self._root / "README.md", substitutions)
 
@@ -98,6 +107,10 @@ class Scaffolder:
 def _read_template(name: str) -> str:
     with resources.files("osdu_perf.scaffolding.templates").joinpath(name).open("r", encoding="utf-8") as f:
         return f.read()
+
+
+def _template_exists(name: str) -> bool:
+    return resources.files("osdu_perf.scaffolding.templates").joinpath(name).is_file()
 
 
 __all__ = ["Scaffolder", "Sample", "available_samples", "SAMPLES"]
