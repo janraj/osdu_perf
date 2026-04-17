@@ -24,23 +24,11 @@ class Sample:
 
 
 SAMPLES: dict[str, Sample] = {
-    "storage_crud": Sample(
-        name="storage_crud",
-        title="Storage CRUD",
-        endpoint="/api/storage/v2/records",
-        class_name="StorageCrudService",
-    ),
     "search_query": Sample(
         name="search_query",
         title="Search Query",
         endpoint="/api/search/v2/query",
         class_name="SearchQueryService",
-    ),
-    "schema_browse": Sample(
-        name="schema_browse",
-        title="Schema Browse",
-        endpoint="/api/schema-service/v1/schema",
-        class_name="SchemaBrowseService",
     ),
 }
 
@@ -56,7 +44,7 @@ class Scaffolder:
         self._root = target_directory
         self._force = force
 
-    def create(self, sample_name: str = "storage_crud") -> Path:
+    def create(self, sample_name: str = "search_query") -> Path:
         if sample_name not in SAMPLES:
             raise ScaffoldError(
                 f"Unknown sample '{sample_name}'. Available: "
@@ -77,15 +65,11 @@ class Scaffolder:
         self._write("azure_config.yaml.tpl", self._root / "config" / "azure_config.yaml", substitutions)
         self._write("test_config.yaml.tpl", self._root / "config" / "test_config.yaml", substitutions)
         self._write("locustfile.py.tpl", self._root / "locustfile.py", substitutions)
-        # Prefer a sample-specific perf test template
-        # (``perf_<sample>_test.py.tpl``) when it exists; otherwise fall
-        # back to the generic ``perf_service_test.py.tpl``.
-        sample_specific = f"perf_{sample.name}_test.py.tpl"
-        perf_template = (
-            sample_specific
-            if _template_exists(sample_specific)
-            else "perf_service_test.py.tpl"
-        )
+        perf_template = f"perf_{sample.name}_test.py.tpl"
+        if not _template_exists(perf_template):
+            raise ScaffoldError(
+                f"Missing template '{perf_template}' for sample '{sample.name}'."
+            )
         self._write(perf_template, self._root / f"perf_{sample.name}_test.py", substitutions)
         self._write("requirements.txt.tpl", self._root / "requirements.txt", substitutions)
         self._write("README.md.tpl", self._root / "README.md", substitutions)

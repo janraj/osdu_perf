@@ -68,12 +68,14 @@ portal URL.
 
 ### Scaffolding
 
-New `search_query` sample template: `perf_search_query_test.py.tpl`
-issues a POST to `/api/search/v2/query` with a random OSDU record id,
-configurable via `SEARCH_QUERY_KIND` / `SEARCH_QUERY_RECORD_ID_PREFIX`
-/ `_MIN` / `_MAX` env vars. The scaffolder auto-prefers
-`perf_<sample>_test.py.tpl` when present and falls back to the generic
-template.
+Only the `search_query` sample is bundled now — `storage_crud` and
+`schema_browse` (and the generic `perf_service_test.py.tpl` fallback)
+are removed. The default for `osdu_perf init --sample` is
+`search_query`.
+
+The `search_query` sample issues a POST to `/api/search/v2/query`
+with a random OSDU record id, configurable via `SEARCH_QUERY_KIND` /
+`SEARCH_QUERY_RECORD_ID_PREFIX` / `_MIN` / `_MAX` env vars.
 
 ### Bug fixes
 
@@ -123,7 +125,7 @@ These are everything a test author or CI pipeline will notice.
 | *(no equivalent)*                             | `osdu_perf version`                                            |
 | *(no equivalent)*                             | `osdu_perf <any-command> --verbose`                            |
 
-* `init` now takes `--sample=<name>` (default `storage_crud`), not a
+* `init` now takes `--sample=<name>` (default `search_query`), not a
   positional service name. `--list-samples` and `--force` are available.
 * `run` is split into `run local` and `run azure` subcommands.
 * All long flags are kebab-case: `--load-test-name`, `--app-id`,
@@ -150,8 +152,7 @@ These are everything a test author or CI pipeline will notice.
 └── README.md
 ```
 
-Bundled samples: `storage_crud`, `search_query`, `schema_browse`. Run
-`osdu_perf samples` to list them.
+Bundled samples: `search_query`. Run `osdu_perf samples` to list them.
 
 ### Configuration
 

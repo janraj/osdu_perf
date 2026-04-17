@@ -277,8 +277,6 @@ scenario_defaults:
     profile: U100_T15M
     metadata:
       scenario_kind: "query"
-  storage_crud:
-    profile: U50_T15M
 
 # Default invocation when `osdu_perf run` is called WITHOUT --scenario.
 # All keys inside apply only when this block supplies the scenario.
@@ -323,8 +321,8 @@ Scaffold a new project.
 osdu_perf init --sample=<name> [--directory=PATH] [--force] [--list-samples]
 ```
 
-* `--sample=<name>`: one of `storage_crud`, `search_query`,
-  `schema_browse` (default `storage_crud`).
+* `--sample=<name>`: currently only `search_query` is bundled
+  (default `search_query`).
 * `--directory=PATH`: target directory (default `.`).
 * `--force`: overwrite existing files.
 * `--list-samples`: print available samples and exit.
@@ -334,9 +332,7 @@ osdu_perf init --sample=<name> [--directory=PATH] [--force] [--list-samples]
 List bundled samples:
 
 ```
-storage_crud          Storage CRUD
 search_query          Search Query
-schema_browse         Schema Browse
 ```
 
 ### `osdu_perf validate`
@@ -484,7 +480,7 @@ osdu_perf samples
 osdu_perf init --sample search_query --directory perf-sq
 
 # Re-scaffold into an existing directory (overwrites)
-osdu_perf init --sample storage_crud --force
+osdu_perf init --sample search_query --force
 ```
 
 ### Validate config
@@ -570,7 +566,7 @@ osdu_perf run azure \
 ### Point at a different project without `cd`
 
 ```bash
-osdu_perf run local --directory /repos/perf-tests --scenario storage_crud
+osdu_perf run local --directory /repos/perf-tests --scenario search_query
 ```
 
 ### Verbose mode (debug logs + full tracebacks)
@@ -856,9 +852,7 @@ osdu_perf run azure --scenario search_query
 
 ```bash
 osdu_perf samples
-# storage_crud          Storage CRUD
 # search_query          Search Query
-# schema_browse         Schema Browse
 ```
 
 ### Writing your own service test

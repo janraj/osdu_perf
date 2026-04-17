@@ -9,14 +9,15 @@ from osdu_perf.scaffolding import Scaffolder, available_samples
 
 
 def test_available_samples_non_empty() -> None:
-    assert [s.name for s in available_samples()]
+    names = [s.name for s in available_samples()]
+    assert names == ["search_query"]
 
 
 def test_scaffolder_writes_expected_layout(tmp_path: Path) -> None:
-    Scaffolder(tmp_path).create(sample_name="storage_crud")
+    Scaffolder(tmp_path).create(sample_name="search_query")
     for expected in [
         "locustfile.py",
-        "perf_storage_crud_test.py",
+        "perf_search_query_test.py",
         "README.md",
         "requirements.txt",
         "config/azure_config.yaml",
@@ -31,7 +32,7 @@ def test_unknown_sample_raises(tmp_path: Path) -> None:
 
 
 def test_refuses_overwrite_without_force(tmp_path: Path) -> None:
-    Scaffolder(tmp_path).create(sample_name="storage_crud")
+    Scaffolder(tmp_path).create(sample_name="search_query")
     with pytest.raises(ScaffoldError):
-        Scaffolder(tmp_path).create(sample_name="storage_crud")
+        Scaffolder(tmp_path).create(sample_name="search_query")
     Scaffolder(tmp_path, force=True).create(sample_name="search_query")

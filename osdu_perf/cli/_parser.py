@@ -26,8 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser("init", help="Scaffold a new test project.")
     init.add_argument(
         "--sample",
-        default="storage_crud",
-        help="Sample template to use (default: storage_crud).",
+        default="search_query",
+        help="Sample template to use (default: search_query).",
     )
     init.add_argument(
         "--directory",
