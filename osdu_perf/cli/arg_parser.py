@@ -32,8 +32,6 @@ Examples:
         parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
         parser.add_argument('--token', help='Bearer token for OSDU authentication (required)')
         parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
-        parser.add_argument('--sku', help='OSDU SKU for metrics collection (overrides config.yaml, default: Standard)')
-        parser.add_argument('--version', help='OSDU version for metrics collection (overrides config.yaml, default: 1.0)')
 
     def _add_split_config_args(self, parser: argparse.ArgumentParser):
         """Adds system config argument with config-folder default."""
@@ -140,7 +138,16 @@ Examples:
         azure_parser.add_argument("--location", help="Azure region (e.g., eastus, westus2) (overrides config.yaml)")
 
         # Azure Load Test Config
-        azure_parser.add_argument("--loadtest-name", default="osdu-perf-dev", help="Azure Load Testing resource name (default: osdu-perf-dev)")
+        azure_parser.add_argument(
+            "--loadtest-name",
+            default=None,
+            help=(
+                "Azure Load Testing resource name (overrides "
+                "azure_infra.azure_load_test.name in system_config.yaml). "
+                "The resource must already exist unless "
+                "azure_infra.allow_resource_creation is true."
+            ),
+        )
         azure_parser.add_argument("--test-name", help="Test name (auto-generated if not provided)")
 
         # Advanced Options

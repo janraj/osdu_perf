@@ -1,5 +1,7 @@
 import os
 import logging
+import socket
+import threading
 import yaml
 import subprocess
 import json
@@ -38,9 +40,19 @@ class InputHandler:
         
         # Only prepare headers if we have environment data
         if environment is not None or self.is_azure_load_test_env:
+            # Per-request correlation-id state (shared across users in this process/engine).
+            # Counter is thread-safe to support gevent/threaded locust workers.
+            self._test_run_id: Optional[str] = None
+            self._short_hostname: str = self._compute_short_hostname()
+            self._request_counter: int = 0
+            self._counter_lock = threading.Lock()
             self.header = self.prepare_headers()
         else:
             self.header = None
+            self._test_run_id = None
+            self._short_hostname = self._compute_short_hostname()
+            self._request_counter = 0
+            self._counter_lock = threading.Lock()
         
         # Load split configuration files (system + test)
         self.system_config, self.test_config = self._load_split_configs()
@@ -374,6 +386,9 @@ class InputHandler:
         if test_run_id is None:
             test_run_id = self.get_test_run_id_prefix() + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
+        # Cache the base test run id so per-request correlation ids can be derived from it.
+        self._test_run_id = test_run_id
+
         headers = {
             "Content-Type": "application/json",
             "data-partition-id": self.partition,
@@ -382,62 +397,140 @@ class InputHandler:
         }
         return headers
 
+    @staticmethod
+    def _compute_short_hostname() -> str:
+        """Return a short, header-safe hostname for correlation-id suffix.
+
+        In Azure Load Testing each engine has a distinct hostname which lets us
+        disambiguate counters across engines.
+        """
+        try:
+            host = os.getenv("HOSTNAME") or socket.gethostname() or "unknown"
+        except Exception:
+            host = "unknown"
+        # Keep only the first label (e.g. "engine-1" from "engine-1.internal")
+        # and strip anything that isn't alphanumeric/dash/underscore.
+        short = host.split('.')[0]
+        safe = ''.join(ch for ch in short if ch.isalnum() or ch in ('-', '_'))
+        return safe or "unknown"
+
+    def _next_request_counter(self) -> int:
+        with self._counter_lock:
+            self._request_counter += 1
+            return self._request_counter
+
+    def new_correlation_id(self) -> str:
+        """Generate a unique correlation-id for a single request.
+
+        Format: ``<test_run_id>-<short_hostname>-<counter>``. The counter is
+        per-process (per-engine), so combined with the hostname it is globally
+        unique within a given test run.
+        """
+        base = self._test_run_id or (
+            self.get_test_run_id_prefix() + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        )
+        return f"{base}-{self._short_hostname}-{self._next_request_counter()}"
+
+    def build_request_headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        """Return a fresh copy of the default headers with a unique correlation-id.
+
+        Use this per-request so each outbound call gets its own correlation-id
+        while preserving all other headers (auth, partition, content-type).
+        """
+        headers = dict(self.header or {})
+        headers["correlation-id"] = self.new_correlation_id()
+        if extra:
+            headers.update(extra)
+        return headers
+
     def get_kusto_config(self) -> Dict[str, Any]:
-        """
-        Get Kusto configuration with smart authentication selection.
-        
-        Uses default values when config.yaml is missing or incomplete.
-        Config.yaml values override defaults when provided.
-        
+        """Get Kusto configuration with auto-selected auth method.
+
+        Shape expected in system_config.yaml::
+
+            azure_infra:
+              kusto:
+                cluster_uri: "https://<name>.<region>.kusto.windows.net"
+                database: "<db>"
+
+        Users only need to supply ONE of ``cluster_uri`` or ``ingest_uri``;
+        the other is derived by adding/stripping the ``ingest-`` prefix on
+        the hostname. Supplying both is allowed only if they're consistent.
+
         Returns:
-            Dictionary containing Kusto configuration with authentication method.
+            Dict with keys ``cluster_uri``, ``ingest_uri``, ``database``,
+            ``auth_method``.
         """
-        # Default Kusto configuration - used as fallback when config.yaml values are not provided
-        default_config = {
-            'cluster': 'https://adme-performance.eastus.kusto.windows.net',
-            'database': 'adme-performance-db',
-            'ingest_uri': 'https://ingest-adme-performance.eastus.kusto.windows.net'
+        raw = (self._azure_infra_section().get('kusto') or {})
+
+        def _clean(v):
+            if isinstance(v, str):
+                v = v.strip()
+                return v or None
+            return v or None
+
+        cluster_uri = _clean(raw.get('cluster_uri'))
+        ingest_uri = _clean(raw.get('ingest_uri'))
+        database = _clean(raw.get('database'))
+
+        if cluster_uri and not ingest_uri:
+            ingest_uri = self._derive_kusto_ingest_uri(cluster_uri)
+        elif ingest_uri and not cluster_uri:
+            cluster_uri = self._derive_kusto_cluster_uri(ingest_uri)
+        elif cluster_uri and ingest_uri:
+            expected_ingest = self._derive_kusto_ingest_uri(cluster_uri)
+            if expected_ingest and expected_ingest != ingest_uri:
+                self.logger.warning(
+                    f"kusto.cluster_uri and kusto.ingest_uri disagree "
+                    f"(expected '{expected_ingest}' from cluster_uri, got "
+                    f"'{ingest_uri}'); using the value derived from "
+                    f"cluster_uri. Supply only one of these."
+                )
+                ingest_uri = expected_ingest
+
+        auth_method = 'managed_identity' if self.is_azure_load_test_env else 'az_cli'
+        self.logger.info(f"Using Kusto authentication method: {auth_method}")
+
+        return {
+            'cluster_uri': cluster_uri,
+            'ingest_uri': ingest_uri,
+            'database': database,
+            'auth_method': auth_method,
         }
-        
-        # Get configuration from system config or use defaults
-        metrics_config = self.system_config.get('metrics_collector', {})
-        kusto_config = metrics_config.get('kusto', {})
-        
-        # Merge with defaults - only use non-empty values from config file
-        final_config = default_config.copy()
-        for key, value in kusto_config.items():
-            if value and value.strip():  # Only use non-empty, non-whitespace values
-                final_config[key] = value
-        
-        # Auto-detect authentication method based on execution environment
-        if self.is_azure_load_test_env:
-            final_config['auth_method'] = 'managed_identity'
-            self.logger.info("Using Kusto authentication method: managed_identity (Azure Load Test environment)")
-        else:
-            final_config['auth_method'] = 'az_cli'
-            self.logger.info("Using Kusto authentication method: az_cli (Local environment)")
-        
-        return final_config
-    
-    def get_metrics_collector_config(self) -> Dict[str, Any]:
-        """
-        Get complete metrics collector configuration.
-        
-        Returns:
-            Dictionary containing all metrics collector configurations.
-        """
-        return self.system_config.get('metrics_collector', {})
+
+    @staticmethod
+    def _derive_kusto_ingest_uri(cluster_uri: str) -> Optional[str]:
+        """Given ``https://<name>.<region>.kusto.windows.net`` return
+        ``https://ingest-<name>.<region>.kusto.windows.net``."""
+        if not cluster_uri:
+            return None
+        try:
+            scheme, rest = cluster_uri.split('://', 1)
+        except ValueError:
+            scheme, rest = 'https', cluster_uri
+        host, _, path = rest.partition('/')
+        if host.startswith('ingest-'):
+            return f"{scheme}://{host}" + (f"/{path}" if path else "")
+        return f"{scheme}://ingest-{host}" + (f"/{path}" if path else "")
+
+    @staticmethod
+    def _derive_kusto_cluster_uri(ingest_uri: str) -> Optional[str]:
+        """Inverse of :meth:`_derive_kusto_ingest_uri`."""
+        if not ingest_uri:
+            return None
+        try:
+            scheme, rest = ingest_uri.split('://', 1)
+        except ValueError:
+            scheme, rest = 'https', ingest_uri
+        host, _, path = rest.partition('/')
+        if host.startswith('ingest-'):
+            host = host[len('ingest-'):]
+        return f"{scheme}://{host}" + (f"/{path}" if path else "")
     
     def is_kusto_enabled(self) -> bool:
-        """
-        Check if Kusto metrics collection is enabled.
-        
-        Returns:
-            True if Kusto configuration is present, False otherwise.
-        """
+        """True when a Kusto cluster and database are both configured."""
         kusto_config = self.get_kusto_config()
-        # Consider Kusto enabled if we have at least cluster and database
-        return bool(kusto_config.get('cluster') and kusto_config.get('database'))
+        return bool(kusto_config.get('cluster_uri') and kusto_config.get('database'))
     
     def get_test_settings(self) -> Dict[str, Any]:
         """
@@ -459,25 +552,23 @@ class InputHandler:
             'test_name_prefix': 'osdu_perf_test',
             'test_scenario': '',
             'test_run_id_description': 'Test run for osdu API',
-            'test_run_id_prefix': 'osdu_perf_test',
         }
 
-        profile_source = (
-            self.test_config.get('performance_tier_profiles', {})
-            or self.test_config.get('sku_profiles', {})
-            or self.test_config.get('instance_profiles', {})
-            or {}
-        )
+        profile_source = self.test_config.get('performance_tier_profiles', {}) or {}
         normalized_profiles = {
             str(key).lower(): value for key, value in profile_source.items()
         } if isinstance(profile_source, dict) else {}
         scenarios = self.test_config.get('scenarios', {}) or {}
 
-        configured_sku = (self.get_osdu_sku() or 'standard').lower()
+        # Pick the performance-tier profile to use. Source of truth is the
+        # `test_metadata.performance_tier` key in system_config.yaml.
+        configured_tier = str(
+            (self.system_config.get('test_metadata') or {}).get('performance_tier')
+            or 'standard'
+        ).lower()
         selected_profile = (
-            normalized_profiles.get(configured_sku)
+            normalized_profiles.get(configured_tier)
             or normalized_profiles.get('standard')
-            or normalized_profiles.get('medium')
             or {}
         )
 
@@ -667,42 +758,11 @@ class InputHandler:
             return cli_override
             
         return None
-    
-    def get_osdu_sku(self, cli_override: Optional[str] = None) -> str:
-        """
-        Get OSDU SKU value from config or CLI override.
 
-        Internally we still use the `sku` variable name in execution paths,
-        but config can provide either `performance_tier` (preferred) or legacy `sku`.
-        
-        Args:
-            cli_override: Optional CLI argument value to override config
-            
-        Returns:
-            OSDU SKU/performance tier value
-        """
-        if cli_override:
-            return cli_override
-            
-        osdu_env = self.system_config.get('osdu_environment', {})
-        return osdu_env.get('performance_tier') or osdu_env.get('sku')
-        
-    def get_osdu_version(self, cli_override: Optional[str] = None) -> str:
-        """
-        Get OSDU version from config.yaml or CLI override.
-        
-        Args:
-            cli_override: Optional CLI argument value to override config
-            
-        Returns:
-            OSDU version value (defaults to "1.0" if not configured)
-        """
-        if cli_override:
-            return cli_override
-            
-        osdu_env = self.system_config.get('osdu_environment', {})
-        return osdu_env.get('version')
-        
+    def _azure_infra_section(self) -> Dict[str, Any]:
+        """Return the ``azure_infra`` section from system_config.yaml."""
+        return self.system_config.get('azure_infra') or {}
+
     def get_azure_subscription_id(self, cli_override: Optional[str] = None) -> str:
         """
         Get Azure subscription ID from config.yaml or CLI override.
@@ -718,9 +778,7 @@ class InputHandler:
         """
         if cli_override:
             return cli_override
-        
-        test_env = self.system_config.get('test_environment', {})
-        return test_env.get('subscription_id')
+        return self._azure_infra_section().get('subscription_id')
 
     def get_azure_resource_group(self, cli_override: Optional[str] = None) -> str:
         """
@@ -737,9 +795,7 @@ class InputHandler:
         """
         if cli_override:
             return cli_override
-            
-        test_env = self.system_config.get('test_environment', {})
-        return test_env.get('resource_group', 'adme-performance-rg')
+        return self._azure_infra_section().get('resource_group', 'adme-performance-rg')
 
     def get_azure_location(self, cli_override: Optional[str] = None) -> str:
         """
@@ -753,10 +809,36 @@ class InputHandler:
         """
         if cli_override:
             return cli_override
-            
-        test_env = self.system_config.get('test_environment', {})
-        return test_env.get('location', 'eastus')
-    
+        return self._azure_infra_section().get('location', 'eastus')
+
+    def get_azure_load_test_name(self, cli_override: Optional[str] = None) -> Optional[str]:
+        """
+        Get the name of the Azure Load Test resource to use.
+
+        Resolution order:
+            1. Explicit CLI override (``--loadtest-name``).
+            2. ``azure_infra.azure_load_test.name`` in system_config.yaml.
+
+        Returns ``None`` if neither source supplies a value so the caller
+        can surface a clear error instead of silently defaulting to a
+        made-up resource name.
+        """
+        if cli_override:
+            return cli_override
+        alt = self._azure_infra_section().get('azure_load_test') or {}
+        return alt.get('name')
+
+    def get_allow_resource_creation(self) -> bool:
+        """Whether the tool may create the resource group + Azure Load Test
+        resource when they don't exist. Controlled by
+        ``azure_infra.allow_resource_creation``; defaults to False.
+        """
+        value = self._azure_infra_section().get('allow_resource_creation', False)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() == 'true'
+        return False
 
     def get_test_name_prefix(self) -> str:
         """
@@ -874,3 +956,28 @@ class InputHandler:
         if configured_scenario:
             return self.validate_scenario(configured_scenario)
         return ''
+
+    def get_test_metadata(self) -> Dict[str, Any]:
+        """Return free-form test-run metadata merged from all sources.
+
+        Precedence (lowest → highest):
+
+        1. ``test_metadata:`` top-level mapping in ``system_config.yaml``.
+        2. ``scenarios.<name>.metadata:`` mapping in ``test_config.yaml``.
+
+        Scenario metadata overrides system metadata on key collision.
+        """
+        metadata: Dict[str, Any] = {}
+
+        system_meta = self.system_config.get('test_metadata', {}) or {}
+        if isinstance(system_meta, dict):
+            metadata.update({k: v for k, v in system_meta.items() if v is not None})
+
+        scenarios = self.test_config.get('scenarios', {}) or {}
+        scenario_name = self.selected_scenario or os.getenv('TEST_SCENARIO')
+        if scenario_name and scenario_name in scenarios:
+            scenario_meta = (scenarios[scenario_name] or {}).get('metadata', {}) or {}
+            if isinstance(scenario_meta, dict):
+                metadata.update({k: v for k, v in scenario_meta.items() if v is not None})
+
+        return metadata

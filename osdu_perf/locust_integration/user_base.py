@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 import io
 import csv
+import json
 
 class PerformanceUser():
     """
@@ -27,19 +28,19 @@ class PerformanceUser():
     # Class-level storage for configuration (accessible in static methods)
     _kusto_config = None
     _input_handler_instance = None
+    _start_banner_printed = False
     
     @staticmethod
     def _setup_logging():
-        """Setup logging configuration with the specified format."""
+        """Return the module logger.
+
+        Locust configures the root logger with its own handler/formatter. We
+        just reuse that pipeline instead of attaching our own handler, which
+        previously caused every line to be printed twice (once by our handler,
+        once by locust's root handler via propagation).
+        """
         logger = logging.getLogger(__name__)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s -  %(filename)s:%(funcName)s:%(lineno)d - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
         return logger
     
 
@@ -53,8 +54,15 @@ class PerformanceUser():
         
         # Store config at class level for access in static methods
         PerformanceUser._kusto_config = self.input_handler.get_kusto_config()
-        PerformanceUser._input_handler_instance = self.input_handler      
- 
+        PerformanceUser._input_handler_instance = self.input_handler
+
+        # Print the test-start banner once per process (first user wins). The
+        # test_start listener also tries to print it, but at that point the
+        # InputHandler hasn't been created yet, so we repeat here with full
+        # details available.
+        if not PerformanceUser._start_banner_printed:
+            PerformanceUser._print_start_banner(environment, self.logger)
+            PerformanceUser._start_banner_printed = True
     def get_host(self):
         """Return the host URL for this user"""
         return self.input_handler.base_url
@@ -74,6 +82,19 @@ class PerformanceUser():
     def get_headers(self):
         """Return the default headers for this user"""
         return self.input_handler.header
+
+    def get_request_headers(self, extra=None):
+        """Return a fresh copy of headers with a unique correlation-id.
+
+        Use this per-request (instead of caching ``get_headers()``) so each
+        outbound request gets a distinct correlation-id of the form
+        ``<test_run_id>-<hostname>-<counter>``.
+        """
+        return self.input_handler.build_request_headers(extra=extra)
+
+    def new_correlation_id(self):
+        """Return a unique correlation-id string for a single request."""
+        return self.input_handler.new_correlation_id()
     
     def get_logger(self):
         return self.logger
@@ -92,7 +113,7 @@ class PerformanceUser():
 
     def _request(self, method, url, name, headers, **kwargs):
         self.logger.info(f"[PerformanceUser] Making {method} request to {url} with name={name} ")   
-        merged_headers = dict(self.input_handler.header)
+        merged_headers = self.input_handler.build_request_headers()
         token = os.getenv("ADME_BEARER_TOKEN", None)
         if token:
             self.logger.debug("[PerformanceUser] Using ADME_BEARER_TOKEN from environment for Authorization header")
@@ -124,20 +145,94 @@ class PerformanceUser():
         except Exception:
             return "unknown"
 
+    @events.test_start.add_listener
+    def on_test_start(environment, **kwargs):
+        """Called once when the test starts.
+
+        The actual banner is printed from the first user's ``__init__`` so the
+        ``InputHandler`` (metadata/scenario) is fully populated. We keep
+        this listener as a hook for future bookkeeping.
+        """
+        return
+
+    @staticmethod
+    def _print_start_banner(environment, logger):
+        """Render the test-start info banner. Safe to call at test_start or on first user init."""
+        input_handler = PerformanceUser._input_handler_instance
+
+        test_run_id = (
+            os.getenv("TEST_RUN_ID_NAME")
+            or os.getenv("TEST_RUN_ID")
+            or (getattr(input_handler, "_test_run_id", None) if input_handler else None)
+            or "unknown"
+        )
+        host = getattr(environment, "host", None) or os.getenv("LOCUST_HOST", "unknown")
+        parsed_options = getattr(environment, "parsed_options", None)
+        partition = (
+            (getattr(input_handler, "partition", None) if input_handler else None)
+            or getattr(parsed_options, "partition", None)
+            or os.getenv("PARTITION", "unknown")
+        )
+        app_id = (
+            (getattr(input_handler, "app_id", None) if input_handler else None)
+            or getattr(parsed_options, "appid", None)
+            or os.getenv("APPID", "unknown")
+        )
+        scenario = os.getenv("TEST_SCENARIO") or (
+            input_handler.get_test_scenario(os.getenv("LOCUST_TAGS"))
+            if input_handler else ""
+        ) or "-"
+
+        # Resolve test metadata from InputHandler (populated from
+        # system_config.yaml test_metadata + per-scenario overrides).
+        metadata = {}
+        if input_handler:
+            try:
+                metadata = input_handler.get_test_metadata() or {}
+            except Exception:
+                metadata = {}
+
+        users = getattr(parsed_options, "num_users", None) if parsed_options else None
+        spawn_rate = getattr(parsed_options, "spawn_rate", None) if parsed_options else None
+        run_time = getattr(parsed_options, "run_time", None) if parsed_options else None
+        tags = getattr(parsed_options, "tags", None) if parsed_options else None
+        env_label = "Azure Load Test" if os.getenv("AZURE_LOAD_TEST", "").lower() == "true" else "Local"
+
+        rows = [
+            ("Test Run ID", test_run_id),
+            ("Environment", env_label),
+            ("Host",        host),
+            ("Partition",   partition),
+            ("App ID",      app_id),
+            ("Scenario",    scenario),
+            ("Tags",        ",".join(tags) if isinstance(tags, list) else (tags or "-")),
+            ("Users",       users if users is not None else "-"),
+            ("Spawn rate",  spawn_rate if spawn_rate is not None else "-"),
+            ("Run time",    run_time or "-"),
+        ]
+        if metadata:
+            # Print each metadata key on its own indented row for readability.
+            rows.append(("Metadata", ""))
+            for mk, mv in metadata.items():
+                rows.append((f"  {mk}", mv))
+
+        key_width = max(len(k) for k, _ in rows)
+        val_width = max(len(str(v)) for _, v in rows)
+        inner_width = key_width + 3 + val_width
+        border = "=" * (inner_width + 4)
+
+        logger.info(border)
+        logger.info("  OSDU Performance Test - Starting")
+        logger.info(border)
+        for key, value in rows:
+            logger.info(f"  {key.ljust(key_width)} : {value}")
+        logger.info(border)
+
     @events.test_stop.add_listener
     def on_test_stop(environment, **kwargs):
         """Called once when the test finishes."""
-        # Setup logger for this static method
         logger = logging.getLogger(__name__)
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s -  %(filename)s:%(funcName)s:%(lineno)d - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
-        
+
         # Get Kusto configuration from InputHandler
         kusto_config = PerformanceUser._kusto_config
         input_handler = PerformanceUser._input_handler_instance
@@ -154,18 +249,24 @@ class PerformanceUser():
         try:
             # Automatically determine authentication method based on environment
             is_azure_load_test = os.getenv("AZURE_LOAD_TEST", "").lower() == "true"
-            
+
+            # QueuedIngestClient connects to the *ingest* endpoint
+            # (https://ingest-<cluster>.<region>.kusto.windows.net), not the
+            # query endpoint. Prefer the resolved ingest_uri; fall back to
+            # cluster only if ingest_uri is missing for backward compat.
+            ingest_endpoint = kusto_config.get('ingest_uri') or kusto_config.get('cluster_uri')
+
             if is_azure_load_test:
                 test_run_environment = "Azure Load Test"
                 auth_method = "managed_identity"
-                logger.info(f"Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                logger.info(f"Pushing metrics to Kusto: {ingest_endpoint}/{kusto_config['database']}")
                 logger.info(f"Using authentication method: {auth_method} (Azure Load Test environment detected)")
-                kcsb = KustoConnectionStringBuilder.with_aad_managed_service_identity_authentication(kusto_config['cluster'])
+                kcsb = KustoConnectionStringBuilder.with_aad_managed_service_identity_authentication(ingest_endpoint)
             else:
                 auth_method = "az_cli"
-                logger.info(f"Pushing metrics to Kusto: {kusto_config['cluster']}/{kusto_config['database']}")
+                logger.info(f"Pushing metrics to Kusto: {ingest_endpoint}/{kusto_config['database']}")
                 logger.info(f"Using authentication method: {auth_method} (local environment detected)")
-                kcsb = KustoConnectionStringBuilder.with_az_cli_authentication(kusto_config['cluster'])
+                kcsb = KustoConnectionStringBuilder.with_az_cli_authentication(ingest_endpoint)
             
             ingest_client = QueuedIngestClient(kcsb)
             
@@ -184,9 +285,15 @@ class PerformanceUser():
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-            sku = input_handler.get_osdu_sku(os.getenv("SKU", None))
-            version = input_handler.get_osdu_version(os.getenv("VERSION", None))
-            
+
+            # Resolve per-run free-form metadata from InputHandler.
+            test_metadata: dict = {}
+            try:
+                test_metadata = input_handler.get_test_metadata() if input_handler else {}
+            except Exception as meta_err:
+                logger.debug(f"Failed to read metadata from InputHandler: {meta_err}")
+                test_metadata = {}
+
             # Calculate test duration and max RPS
             stats = environment.runner.stats
             try:
@@ -217,8 +324,6 @@ class PerformanceUser():
                 stats_results.append({
                     "ADME": adme,
                     "Partition": partition,
-                    "SKU": sku,
-                    "Version": version,
                     "Service": service,
                     "TestEnv": test_run_environment,
                     "Name": entry.name,
@@ -250,7 +355,8 @@ class PerformanceUser():
                     "Timestamp": current_timestamp.isoformat(),
                     "TestRunId": test_run_id,
                     "Throughput": throughput,
-                    "TestScenario": test_scenario
+                    "TestScenario": test_scenario,
+                    "Metadata": test_metadata,
                 })
             
             # 2. PREPARE EXCEPTIONS DATA
@@ -261,8 +367,6 @@ class PerformanceUser():
                 exceptions_results.append({
                     "TestRunId": test_run_id,
                     "ADME": adme,
-                    "SKU": sku,
-                    "Version": version,
                     "Partition": partition,
                     "Method": method,
                     "Name": name,
@@ -273,7 +377,8 @@ class PerformanceUser():
                     "ErrorMessage": str(getattr(error_entry, 'msg', '')),
                     "Service": PerformanceUser.get_service_name(name),
                     "Timestamp": current_timestamp.isoformat(),
-                    "TestScenario": test_scenario
+                    "TestScenario": test_scenario,
+                    "Metadata": test_metadata,
                 })
             
             # 3. PREPARE SUMMARY DATA
@@ -283,9 +388,8 @@ class PerformanceUser():
                 "TestRunId": test_run_id,
                 "ADME": adme,
                 "Partition": partition,
-                "SKU": sku,
-                "Version": version,
                 "TestEnv": test_run_environment,
+                "TestScenario": test_scenario,
                 "TotalRequests": int(stats.total.num_requests),
                 "TotalFailures": int(stats.total.num_failures),
                 "MedianResponseTime": float(stats.total.median_response_time),
@@ -313,81 +417,27 @@ class PerformanceUser():
                 "AverageRPS": float(average_rps),
                 "Timestamp": current_timestamp.isoformat(),
                 "Throughput": throughput,
-                "TestScenario": test_scenario
+                "Metadata": test_metadata,
             }]
             
-            # CREATE INGESTION PROPERTIES
-            stats_ingestion_props = IngestionProperties(
-                database=kusto_config['database'],
-                table="LocustMetrics",
-                data_format=DataFormat.CSV
-            )
-            
-            exceptions_ingestion_props = IngestionProperties(
-                database=kusto_config['database'],
-                table="LocustExceptions",
-                data_format=DataFormat.CSV
-            )
-            
-            summary_ingestion_props = IngestionProperties(
-                database=kusto_config['database'],
-                table="LocustTestSummary",
-                data_format=DataFormat.CSV
-            )
-            
-            
-            def create_csv_string(data_list, headers):
-                """Create CSV string from list of dictionaries"""
-                if not data_list:
-                    return ""
-                
-                output = io.StringIO()
-                writer = csv.DictWriter(output, fieldnames=headers)
-                writer.writeheader()
-                writer.writerows(data_list)
-                return output.getvalue()
-
-            # INGEST DATA using CSV format
-            if stats_results:
-                stats_headers = ["TestEnv", "ADME", "Partition", "SKU", "Version", "Service", "Name", "Method", 
-                               "Requests", "Failures", "MedianResponseTime", "AverageResponseTime",
-                               "MinResponseTime", "MaxResponseTime", "ResponseTime50th", "ResponseTime60th",
-                               "ResponseTime70th", "ResponseTime80th", "ResponseTime90th", "ResponseTime95th",
-                               "ResponseTime98th", "ResponseTime99th", "ResponseTime999th", "CurrentRPS",
-                               "CurrentFailPerSec", "AverageRPS", "RequestsPerSec", "FailuresPerSec", 
-                               "FailRatio", "TotalContentLength", "StartTime", "LastRequestTimestamp",
-                               "Timestamp", "TestRunId", "Throughput", "TestScenario"]
-                stats_csv = create_csv_string(stats_results, stats_headers)
-                ingest_client.ingest_from_stream(
-                    io.StringIO(stats_csv), 
-                    stats_ingestion_props
+            # INGEST DATA as newline-delimited JSON (MULTIJSON) so the
+            # ``Metadata`` column can be ingested as a native dynamic value
+            # instead of being stringified through CSV.
+            def _ingest_json(rows: list, table: str, label: str):
+                if not rows:
+                    return
+                props = IngestionProperties(
+                    database=kusto_config['database'],
+                    table=table,
+                    data_format=DataFormat.MULTIJSON,
                 )
-                logger.info(f"Stats data pushed to Kusto (LocustMetrics table): {len(stats_results)} records")
+                payload = "\n".join(json.dumps(r, default=str) for r in rows)
+                ingest_client.ingest_from_stream(io.StringIO(payload), props)
+                logger.info(f"{label} pushed to Kusto ({table}): {len(rows)} record(s)")
 
-            if exceptions_results:
-                exceptions_headers = ["TestEnv", "TestRunId", "ADME", "SKU", "Version", "Partition", "Method", "Name", "Error", 
-                                    "Occurrences", "Traceback", "ErrorMessage", "Service", "Timestamp", "TestScenario"]
-                exceptions_csv = create_csv_string(exceptions_results, exceptions_headers)
-                ingest_client.ingest_from_stream(
-                    io.StringIO(exceptions_csv), 
-                    exceptions_ingestion_props
-                )
-                logger.info(f"Exceptions data pushed to Kusto (LocustExceptions table): {len(exceptions_results)} records")
-
-            if summary_results:
-                summary_headers = ["TestEnv", "TestRunId", "ADME", "Partition", "SKU", "Version", "TotalRequests", 
-                                 "TotalFailures", "MedianResponseTime", "AvgResponseTime", "MinResponseTime", 
-                                 "MaxResponseTime", "ResponseTime50th", "ResponseTime60th", "ResponseTime70th", 
-                                 "ResponseTime80th", "ResponseTime90th", "ResponseTime95th", "ResponseTime98th", 
-                                 "ResponseTime99th", "ResponseTime999th", "CurrentRPS", "CurrentFailPerSec", 
-                                 "RequestsPerSec", "FailuresPerSec", "FailRatio", "TotalContentLength", 
-                                 "StartTime", "EndTime", "TestDurationSeconds", "AverageRPS", "Timestamp", "Throughput", "TestScenario"]
-                summary_csv = create_csv_string(summary_results, summary_headers)
-                ingest_client.ingest_from_stream(
-                    io.StringIO(summary_csv), 
-                    summary_ingestion_props
-                )
-                logger.info(f"Summary data pushed to Kusto (LocustTestSummary table): 1 record")
+            _ingest_json(stats_results, "LocustMetricsV2", "Stats data")
+            _ingest_json(exceptions_results, "LocustExceptionsV2", "Exceptions data")
+            _ingest_json(summary_results, "LocustTestSummaryV2", "Summary data")
 
             logger.info(f"Test Run ID: {test_run_id}")
 

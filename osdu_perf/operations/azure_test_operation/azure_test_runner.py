@@ -71,9 +71,8 @@ class AzureLoadTestRunner:
                  load_test_name: str,
                  location: str = "eastus",
                  tags: Optional[Dict[str, str]] = None,
-                 sku: str = "Standard",
-                 version: str = "25.1.23", 
-                 test_runid_name: str = "osdu-perf-test"):
+                 test_runid_name: str = "osdu-perf-test",
+                 allow_resource_creation: bool = False):
         
         """
         Initialize the Azure Load Test Manager.
@@ -98,19 +97,15 @@ class AzureLoadTestRunner:
             load_test_name=load_test_name,
             location=location,
             tags=tags or {"Environment": "Performance Testing", "Service": "OSDU"},
-            sku=sku,
-            version=version,
             test_runid_name=test_runid_name
         )
         
-        # Store commonly used config values for backward compatibility
+        # Store commonly used config values
         self.subscription_id = self.config.subscription_id
         self.resource_group_name = self.config.resource_group_name
         self.load_test_name = self.config.load_test_name
         self.location = self.config.location
         self.tags = self.config.tags
-        self.sku = self.config.sku
-        self.version = self.config.version
         self.test_runid_name = self.config.test_runid_name
         self.management_base_url = self.config.management_base_url
         self.api_version = self.config.api_version
@@ -120,6 +115,7 @@ class AzureLoadTestRunner:
         self.loadtest_run_client = None
         
         # Initialize Resource Manager for resource lifecycle operations
+        self.allow_resource_creation = bool(allow_resource_creation)
         self.resource_manager = AzureLoadTestResourceManager(
             subscription_id=self.config.subscription_id,
             resource_group_name=self.config.resource_group_name,
@@ -127,7 +123,8 @@ class AzureLoadTestRunner:
             location=self.config.location,
             credential=self._credential,
             tags=self.config.tags,
-            logger=self.logger
+            logger=self.logger,
+            allow_resource_creation=self.allow_resource_creation,
         )
         
         # Log initialization
@@ -340,9 +337,7 @@ class AzureLoadTestRunner:
                 environment_variables["PARTITION"] = partition
             if app_id:
                 environment_variables["APPID"] = app_id
-            
-            environment_variables["SKU"] = self.sku
-            environment_variables["VERSION"] = self.version
+
             # Load Test Parameters - convert run_time to seconds integer
             environment_variables["LOCUST_USERS"] = str(users)
             environment_variables["LOCUST_SPAWN_RATE"] = str(spawn_rate)
@@ -360,7 +355,7 @@ class AzureLoadTestRunner:
             
             body = {
                 "displayName": display_name,
-                "description": test_description if test_description else f"Load test for Service {test_name} , SKU {self.sku}",
+                "description": test_description if test_description else f"Load test for {test_name}",
                 "kind": "Locust",  # Specify Locust as the testing framework
                 "engineBuiltinIdentityType": "SystemAssigned",
                 "loadTestConfiguration": {
@@ -563,7 +558,7 @@ class AzureLoadTestRunner:
                 engine_instances=engine_instances,
                 tags=tags,
                 adme_token=adme_token,
-                test_description=test_description
+                test_description=test_description,
             )
             
             if not test_result:
@@ -690,8 +685,6 @@ def main():
             load_test_name=LOAD_TEST_NAME,
             location=LOCATION,
             tags={"Environment": "Demo", "Project": "OSDU"},
-            sku="Standard",
-            version="25.1.23"
         )
         
         # Create the load test 

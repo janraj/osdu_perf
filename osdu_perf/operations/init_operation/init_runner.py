@@ -34,24 +34,27 @@ osdu_environment:
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
 
+# Free-form labels describing WHAT is being tested. Every key/value lands
+# in the Kusto Metadata column. `performance_tier` also selects the matching
+# profile from test_config.yaml:performance_tier_profiles.
+test_metadata:
   performance_tier: "Standard"
   version: "25.2.35"
 
-# OSDU deployment details (optional - used for metrics collection)
-# Metrics Collection Configuration  [Optional] 
-# metrics_collector:
-  # Kusto (Azure Data Explorer) Configuration
-  # kusto:
-  #  cluster: ""
-  #  database: ""
-  #  ingest_uri: ""
+# Azure infrastructure [Required for `osdu_perf run azure`]
+# azure_infra:
+#   subscription_id: ""
+#   resource_group: "adme-performance-rg"
+#   location: "eastus"
+#   allow_resource_creation: false      # opt-in to create ALT resource group / ALT resource
+#   azure_load_test:
+#     name: ""                          # name of an existing Azure Load Test resource
+#   kusto:                              # optional telemetry sink
+#     cluster_uri: ""                   # EITHER cluster_uri OR ingest_uri (the other is derived)
+#     database: ""
 
 # Test Configuration (Must)
 test_settings:
-  # Where the azure load test resource and tests are located
-  subscription_id: ""
-  # resource_group: "adme-performance-rg"
-  # location: "eastus"
   #Test specific configurations
   default_wait_time: 
     min: 1
@@ -219,21 +222,34 @@ osdu_environment:
   host: "https://your-osdu-host.com"
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
-    performance_tier: "Standard"
+
+# Free-form labels lifted into the Kusto Metadata column. `performance_tier`
+# also selects the matching performance_tier_profiles entry.
+test_metadata:
+  performance_tier: "Standard"
   version: "25.2.35"
 
-# Metrics Collection Configuration  
-metrics_collector:
-  kusto:
-    cluster: "https://your-kusto-cluster.eastus.kusto.windows.net"
-    database: "your-database"
-    ingest_uri: "https://ingest-your-kusto.eastus.kusto.windows.net"
-
-# Test Configuration
-test_settings:
+# Azure infrastructure the tool talks to.
+azure_infra:
   subscription_id: "your-azure-subscription-id"
   resource_group: "your-resource-group"
   location: "eastus"
+  # Safety switch: when false (default) the tool will not create the
+  # resource group or the Azure Load Test resource. Set to true to opt in.
+  allow_resource_creation: false
+
+  azure_load_test:
+    # Name of an existing Azure Load Test resource. Required for `run azure`
+    # unless allow_resource_creation is true.
+    name: "your-loadtest-resource-name"
+
+  kusto:
+    # Provide EITHER cluster_uri OR ingest_uri; the other is derived.
+    cluster_uri: "https://your-kusto-cluster.eastus.kusto.windows.net"
+    database: "your-database"
+
+# Test Configuration
+test_settings:
   default_wait_time: 
     min: 1
     max: 3
@@ -441,31 +457,49 @@ class OSDUUser(HttpUser):
 
     def create_system_config_file(self, output_path: Path) -> None:
         """Creates system_config.yaml with key-only shared settings."""
-        config_content = """# Shared system configuration for OSDU performance tests
-# Keep environment and Azure Load Test location values here.
+        config_content = """# Shared system configuration for OSDU performance tests.
+# Keep environment, Azure infrastructure, and Kusto telemetry settings here.
 
 osdu_environment:
-  # OSDU instance details (required for run local command)
+  # OSDU instance details (required for `osdu_perf run local`)
   host:
   partition:
   app_id:
 
+# Free-form labels describing *what* is being tested. Every key/value lands
+# in the `Metadata` dynamic column in Kusto (LocustMetricsV2 /
+# LocustExceptionsV2 / LocustTestSummaryV2). `performance_tier` also
+# selects the matching profile from test_config.yaml. Scenarios can
+# override individual keys via `scenarios.<name>.metadata` in
+# test_config.yaml.
+test_metadata:
   performance_tier:
   version:
+  # region: ""
+  # build: ""
 
-# OSDU deployment details (optional - used for metrics collection)
-# Metrics Collection Configuration (optional)
-# metrics_collector:
-#   kusto:
-#     cluster:
-#     database:
-#     ingest_uri:
-
-test_environment:
-  # Where the Azure Load Testing resource and tests are located
+# Azure infrastructure the tool talks to. All names used by `osdu_perf run
+# azure` live here so users have a single place to point at existing Azure
+# resources (or opt in to create them).
+azure_infra:
   subscription_id:
   resource_group:
   location:
+
+  # Safety switch. When false (default), the tool will NEVER create the
+  # resource group or the Azure Load Test resource. Set to true to opt in.
+  allow_resource_creation: false
+
+  # Azure Load Test resource where the test engines run. Must already exist
+  # unless allow_resource_creation is true. Overridable with --loadtest-name.
+  azure_load_test:
+    name:
+
+  # Kusto (Azure Data Explorer) destination for test telemetry (optional).
+  # Provide EITHER cluster_uri OR ingest_uri — the other is derived.
+  # kusto:
+  #   cluster_uri: ""
+  #   database: ""
 """
         output_path.write_text(config_content, encoding='utf-8')
         self.logger.info(f"Created {output_path.name}")

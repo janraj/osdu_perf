@@ -22,55 +22,95 @@ class AuthenticationStrategy(ABC):
 
 class AzureCliStrategy(AuthenticationStrategy):
     """Authentication strategy using Azure CLI credentials."""
-    
+
+    # Class-level cache so all user/InputHandler instances share the same
+    # token for a given scope instead of shelling out per user.
+    _shared_cached_tokens: dict = {}
+
     def __init__(self):
         self.credential = AzureCliCredential()
         self.logger = logging.getLogger(__name__)
-        self._cached_tokens = {}
+        self._cached_tokens = AzureCliStrategy._shared_cached_tokens
         self.az_commands = ['az', 'az.exe', 'az.cmd']
 
-    def get_token_v1(self, scope: str= None) -> str:
-        """Get token using Azure CLI credentials using az account get_access_token_command."""
-        self.logger.info(f"Getting CLI token for scope using az account get_access_token_command: {scope}")
+    def get_token_v1(self, scope: str = None) -> str:
+        """Get token by shelling out to ``az account get-access-token``.
+
+        This mirrors what a user would run manually:
+            az account get-access-token --resource <appId>
+
+        The ``scope`` may be either a bare app id / resource URI (e.g.
+        ``api://<appId>``) or a ``.default`` scope (e.g. ``api://<appId>/.default``).
+        We normalize it and pass ``--scope`` when it looks like a scope and
+        ``--resource`` otherwise.
+        """
+        self.logger.info(f"Getting CLI token via 'az account get-access-token' for scope: {scope}")
+
+        cmd_tail = []
+        if scope:
+            if scope.endswith('/.default') or scope.startswith('https://') or '//' in scope:
+                cmd_tail = ['--scope', scope]
+            else:
+                # Treat as a resource (app id or api:// uri)
+                cmd_tail = ['--resource', scope]
+
+        result = None
         for az_cmd in self.az_commands:
             try:
-                result = subprocess.run([az_cmd, 'account', 'get-access-token'], 
-                                      capture_output=True, text=True, check=True, shell=True)
+                result = subprocess.run(
+                    [az_cmd, 'account', 'get-access-token', *cmd_tail],
+                    capture_output=True, text=True, check=True, shell=True,
+                )
                 break
-            except (subprocess.CalledProcessError, FileNotFoundError):
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                self.logger.debug(f"'{az_cmd}' attempt failed: {e}")
                 continue
+
         if result is None:
-            self.logger.error("❌ Azure CLI not found. Please make sure Azure CLI is installed and in PATH")
+            raise RuntimeError(
+                "Azure CLI not found or 'az account get-access-token' failed. "
+                "Please ensure Azure CLI is installed, in PATH, and that you are logged in via 'az login'."
+            )
         if result.returncode != 0:
-            self.logger.error(f"❌ Azure CLI command failed with return code {result.returncode}")
+            raise RuntimeError(
+                f"az account get-access-token failed (code {result.returncode}): {result.stderr.strip()}"
+            )
+
         token_info = json.loads(result.stdout)
         access_token = token_info['accessToken']
-        
-        self.logger.info("✅ Successfully retrieved access token using naive approach")
+        self.logger.info("✅ Successfully retrieved access token via Azure CLI")
         return access_token
     
     def get_token(self, scope: str) -> str:
-        """Get token using Azure CLI credentials."""
+        """Get token using Azure CLI credentials.
+
+        We intentionally shell out to ``az account get-access-token --resource <appId>``
+        instead of using ``AzureCliCredential.get_token`` because the SDK call
+        passes the scope as-is (``api://<appId>/.default``), which results in a
+        token with ``aud = "api://<appId>"``. OSDU services expect the bare app
+        id (``aud = "<appId>"``) that ``--resource <appId>`` produces.
+        """
         self.logger.info(f"Getting CLI token for scope : {scope}")
         token = self.get_cached_token(scope)
         if token:
             self.logger.info(f"Using cached token for scope: {scope}")
             return token
+
+        # Normalize scope to a bare resource / app id for --resource.
+        resource = scope or ""
+        if resource.endswith('/.default'):
+            resource = resource[: -len('/.default')]
+        if resource.startswith('api://'):
+            resource = resource[len('api://'):]
+
         try:
-            token = self.credential.get_token(scope)
-
-            if token:
-                self._cached_tokens[scope] = token.token
-                self.logger.info(f"Obtained new token for scope: {scope}")
-
-            return token.token
-        except Exception as e:
-            self.logger.error(f"Error obtaining token from Azure CLI: {e}")
-            token = self.get_token_v1(scope)
+            token = self.get_token_v1(resource)
             if token:
                 self._cached_tokens[scope] = token
                 self.logger.info(f"Obtained new token for scope: {scope}")
-                return token
+            return token
+        except Exception as e:
+            self.logger.error(f"Error obtaining token via Azure CLI for resource '{resource}': {e}")
             raise
     
     def get_cached_token(self, scope: str) -> str:
@@ -86,12 +126,14 @@ class AzureCliStrategy(AuthenticationStrategy):
 
 class ManagedIdentityStrategy(AuthenticationStrategy):
     """Authentication strategy using Managed Identity credentials."""
-    
+
+    _shared_cached_tokens: dict = {}
+
     def __init__(self, client_id: Optional[str] = None):
         self.credential = ManagedIdentityCredential(client_id=client_id)
         self.client_id = client_id
         self.logger = logging.getLogger(__name__)
-        self._cached_tokens = {}
+        self._cached_tokens = ManagedIdentityStrategy._shared_cached_tokens
     
     def get_token(self, scope: str) -> str:
         """Get token using Managed Identity credentials."""

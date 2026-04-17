@@ -50,12 +50,12 @@ class AzureLoadTestCommand(Command):
                 run_time=config['run_time'],
                 engine_instances=config['engine_instances'],
                 tags=config['tags'],
-                adme_token = config['osdu_adme_token'],
-                test_description = config.get('test_description', '')
+                adme_token=config['osdu_adme_token'],
+                test_description=config.get('test_description', ''),
             )
             
             if setup_success:
-                self._setup_azure_entitlements(runner, config, args.loadtest_name)
+                self._setup_azure_entitlements(runner, config, config['loadtest_name'])
                 self._execute_load_test(runner, config)
                 return 0
             else:
@@ -78,8 +78,6 @@ class AzureLoadTestCommand(Command):
         partition = args.partition or input_handler.get_osdu_partition()
         osdu_adme_token = args.token  # Token is for running locally and enabling entitlement 
         app_id = args.app_id or input_handler.get_osdu_app_id()
-        sku = getattr(args, 'sku', None) or input_handler.get_osdu_sku()
-        version = getattr(args, 'version', None) or input_handler.get_osdu_version()
         
         if osdu_adme_token is None:
             osdu_adme_token = input_handler.get_token_for_control_path(app_id)
@@ -88,6 +86,8 @@ class AzureLoadTestCommand(Command):
         subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
         resource_group = args.resource_group or input_handler.get_azure_resource_group()
         location = args.location or input_handler.get_azure_location()
+        loadtest_name = input_handler.get_azure_load_test_name(getattr(args, 'loadtest_name', None))
+        allow_resource_creation = input_handler.get_allow_resource_creation()
         
         # Scenario selection must match test config and be exactly one value.
         valid_scenario = input_handler.validate_scenario(getattr(args, 'scenario', None))
@@ -98,15 +98,25 @@ class AzureLoadTestCommand(Command):
         spawn_rate = input_handler.get_spawn_rate(getattr(args, 'spawn_rate', None))
         run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
         engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
-        
+
+        # Resolve test_metadata (after scenario is selected so overrides apply).
+        test_metadata = input_handler.get_test_metadata()
+
         # Generate test run ID
         test_run_id_prefix = input_handler.get_test_run_id_prefix()
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         test_run_id = f"{test_run_id_prefix}_{timestamp}"
-        
-        # Generate test name
+
+        # Generate test name. Embed performance_tier + version from
+        # test_metadata when present so ALT tests are discoverable per tier.
         test_name = input_handler.get_test_name_prefix()
-        test_name = f"{test_name}_{sku}_{version}".lower().replace(".", "_")
+        suffix = "_".join(
+            str(test_metadata[k]) for k in ("performance_tier", "version")
+            if test_metadata.get(k)
+        )
+        if suffix:
+            test_name = f"{test_name}_{suffix}"
+        test_name = test_name.lower().replace(".", "_")
         tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
         test_description = input_handler.get_test_run_id_description()
         execution_display_name = input_handler.get_test_run_name(test_name)
@@ -116,11 +126,12 @@ class AzureLoadTestCommand(Command):
             'partition': partition,
             'osdu_adme_token': osdu_adme_token,
             'app_id': app_id,
-            'sku': sku,
-            'version': version,
+            'test_metadata': test_metadata,
             'subscription_id': subscription_id,
             'resource_group': resource_group,
             'location': location,
+            'loadtest_name': loadtest_name,
+            'allow_resource_creation': allow_resource_creation,
             'users': users,
             'spawn_rate': spawn_rate,
             'run_time': run_time,
@@ -155,20 +166,33 @@ class AzureLoadTestCommand(Command):
         if not config['location']:
             self.logger.error("❌ Azure location is required (--location or system_config.yaml)")
             sys.exit(1)
+        if not config.get('loadtest_name'):
+            self.logger.error(
+                "❌ Azure Load Test resource name is required. Set "
+                "`azure_infra.azure_load_test.name` in system_config.yaml "
+                "or pass --loadtest-name."
+            )
+            sys.exit(1)
 
 
     def _log_configuration_details(self, config):
         """Log configuration details for Azure Load Test."""
+        import json as _json
         self.logger.info(f"🌐 OSDU Host: {config['host']}")
         self.logger.info(f"📂 Partition: {config['partition']}")
         if config['app_id']:
             self.logger.info(f"🆔 App ID: {config['app_id']}")
-        self.logger.info(f"📦 SKU: {config['sku']}")
-        self.logger.info(f"🔢 Version: {config['version']}")
+        if config.get('test_metadata'):
+            self.logger.info(f"🏷️  Test Metadata: {_json.dumps(config['test_metadata'], default=str)}")
         self.logger.info(f"🆔 Test Run ID: {config['test_run_id']}")
         self.logger.info(f"🏗️  Azure Subscription: {config['subscription_id']}")
         self.logger.info(f"🏗️  Resource Group: {config['resource_group']}")
         self.logger.info(f"🏗️  Location: {config['location']}")
+        self.logger.info(f"🧪 Azure Load Test resource: {config.get('loadtest_name') or '<not set>'}")
+        self.logger.info(
+            f"🛡️  Auto-create Azure resources: "
+            f"{'ENABLED' if config.get('allow_resource_creation') else 'DISABLED (set azure_infra.allow_resource_creation: true in system_config.yaml to allow)'}"
+        )
         self.logger.info(f"🧪 Test Name: {config['test_name']}")
         self.logger.info(f"     Test Scenario tags: {config['tags']}")
 
@@ -180,7 +204,7 @@ class AzureLoadTestCommand(Command):
         return AzureLoadTestRunner(
             subscription_id=config['subscription_id'],
             resource_group_name=config['resource_group'],
-            load_test_name=args.loadtest_name,
+            load_test_name=config['loadtest_name'],
             location=config['location'],
             tags={
                 "Environment": "Performance Testing", 
@@ -189,9 +213,8 @@ class AzureLoadTestCommand(Command):
                 "TestName": config['test_name'],
                 "TestRunId": config['test_run_id']
             },
-            sku=config['sku'],
-            version=config['version'],
-            test_runid_name=config['execution_display_name']
+            test_runid_name=config['execution_display_name'],
+            allow_resource_creation=config.get('allow_resource_creation', False),
         )
 
 

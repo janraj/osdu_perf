@@ -17,10 +17,8 @@ class AzureLoadTestConfig:
         "Environment": "Performance Testing",
         "Service": "OSDU"
     })
-    sku: str = "Standard"
-    
+
     # Test Configuration
-    version: str = "25.1.23"
     test_runid_name: str = "osdu-perf-test"
     
     # API Configuration
@@ -53,8 +51,6 @@ class AzureLoadTestConfig:
             "load_test_name": self.load_test_name,
             "location": self.location,
             "tags": self.tags,
-            "sku": self.sku,
-            "version": self.version,
             "test_runid_name": self.test_runid_name,
             "api_version": self.api_version,
             "data_plane_url": self.data_plane_url,

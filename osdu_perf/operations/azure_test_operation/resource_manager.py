@@ -17,9 +17,19 @@ class AzureLoadTestResourceManager:
         location: str,
         credential: Any,
         tags: Optional[Dict[str, str]] = None,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[logging.Logger] = None,
+        allow_resource_creation: bool = False,
     ):
-        """Initialize the resource manager."""
+        """Initialize the resource manager.
+
+        Args:
+            allow_resource_creation: When False (default), the manager will
+                NEVER create a resource group or a load test resource. If the
+                target resources don't already exist, an explicit error is
+                raised so the user can fix the config or opt-in by setting
+                ``azure_infra.allow_resource_creation: true`` in
+                system_config.yaml.
+        """
         self.subscription_id = subscription_id
         self.resource_group_name = resource_group_name
         self.load_test_name = load_test_name
@@ -27,6 +37,7 @@ class AzureLoadTestResourceManager:
         self.credential = credential
         self.tags = tags or {"Environment": "Performance Testing", "Service": "OSDU"}
         self.logger = logger or logging.getLogger(__name__)
+        self.allow_resource_creation = bool(allow_resource_creation)
         
         # Initialize SDK clients
         self._init_clients()
@@ -70,7 +81,21 @@ class AzureLoadTestResourceManager:
                 self.logger.info(f"Resource group '{self.resource_group_name}' already exists {rg}")
                 return True
             except Exception as e:
-                # Resource group doesn't exist, create it
+                # Resource group doesn't exist.
+                if not self.allow_resource_creation:
+                    msg = (
+                        f"Resource group '{self.resource_group_name}' does not exist in "
+                        f"subscription '{self.subscription_id}' and automatic resource "
+                        f"creation is disabled. Either create it manually, verify the "
+                        f"resource_group / subscription_id in system_config.yaml are "
+                        f"correct, or opt in by setting "
+                        f"`azure_infra.allow_resource_creation: true` in "
+                        f"system_config.yaml."
+                    )
+                    self.logger.error(f"❌ {msg}")
+                    raise RuntimeError(msg) from e
+
+                # Opt-in path: create it
                 self.logger.info(f"Creating resource group '{self.resource_group_name}'... (error checking existence: {e})")
 
                 rg_params = {
@@ -125,7 +150,21 @@ class AzureLoadTestResourceManager:
             self.logger.info(f"Load test resource '{self.load_test_name}' already exists, {resource.data_plane_uri}, resource.identity.principal_id={resource.identity.principal_id}")
 
         except Exception as e:
-            # Resource doesn't exist, create it
+            # Resource doesn't exist.
+            if not self.allow_resource_creation:
+                msg = (
+                    f"Azure Load Test resource '{self.load_test_name}' does not "
+                    f"exist in resource group '{self.resource_group_name}' "
+                    f"(subscription '{self.subscription_id}') and automatic "
+                    f"resource creation is disabled. Either create it manually, "
+                    f"double-check --loadtest-name / system_config.yaml, or opt "
+                    f"in by setting `azure_infra.allow_resource_creation: "
+                    f"true` in system_config.yaml."
+                )
+                self.logger.error(f"❌ {msg}")
+                raise RuntimeError(msg) from e
+
+            # Opt-in path: create it
             self.logger.info(f"Creating new load test resource... {self.load_test_name}")
 
             try:
