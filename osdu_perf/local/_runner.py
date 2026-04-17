@@ -29,6 +29,16 @@ class LocalRunInputs:
     headless: bool = False
     test_run_id_prefix: str = "perf"
     extra_labels: dict[str, str] = field(default_factory=dict)
+    test_name: str | None = None
+    run_id: str | None = None
+    """Optional pre-computed run id. When ``None`` the runner generates
+    one using :func:`build_run_id`. Passing it in lets the caller print
+    a startup summary that references the same id the run uses."""
+
+
+def build_run_id(inputs: LocalRunInputs) -> str:
+    """Compute the run id for a local invocation (stable for its lifetime)."""
+    return _run_id(inputs)
 
 
 class LocalRunner:
@@ -50,7 +60,7 @@ class LocalRunner:
                 "HOST": inputs.host,
                 "PARTITION": inputs.partition,
                 "APPID": inputs.app_id,
-                "TEST_RUN_ID": _run_id(inputs),
+                "TEST_RUN_ID": inputs.run_id or _run_id(inputs),
                 "TEST_SCENARIO": inputs.scenario,
             }
         )
@@ -93,8 +103,15 @@ def _build_command(inputs: LocalRunInputs) -> list[str]:
 
 def _run_id(inputs: LocalRunInputs) -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    prefix = inputs.test_run_id_prefix or "perf"
+    prefix = (inputs.test_run_id_prefix or "perf").strip() or "perf"
+    # Keep the legacy ``<scenario>_<prefix>_<ts>`` shape when no
+    # ``test_name`` is configured. When it is (via
+    # ``run_scenario.test_name`` or ``--test-name``), mirror the ALT
+    # layout: ``<scenario>_<test_name>_<prefix>_<ts>``.
+    name = (inputs.test_name or "").strip()
+    if name and name != inputs.scenario:
+        return f"{inputs.scenario}_{name}_{prefix}_{stamp}"
     return f"{inputs.scenario}_{prefix}_{stamp}"
 
 
-__all__ = ["LocalRunner", "LocalRunInputs"]
+__all__ = ["LocalRunner", "LocalRunInputs", "build_run_id"]
