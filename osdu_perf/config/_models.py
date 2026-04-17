@@ -92,6 +92,7 @@ class RunScenario:
 
     scenario: str | None = None
     profile: str | None = None
+    test_name: str | None = None
     labels: dict[str, Any] = field(default_factory=dict)
 
 
@@ -179,6 +180,7 @@ class AppConfig:
             profile=self.profiles[key],
             labels=merged_labels,
             test_run_id_prefix=self.test_run_id_prefix,
+            test_name=(self.run_scenario.test_name if used_run_scenario else None),
         )
 
 
@@ -191,6 +193,7 @@ class ResolvedRun:
     profile: PerformanceProfile
     labels: dict[str, Any]
     test_run_id_prefix: str = "perf"
+    test_name: str | None = None
 
 
 __all__ = [

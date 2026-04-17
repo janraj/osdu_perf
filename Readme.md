@@ -122,10 +122,23 @@ Then:
 osdu_perf run azure --scenario search_query
 ```
 
-Expected output (last line):
+Expected output (summary block printed at the end):
 
 ```
-Started test run: search_query_perf_search_query_20260417120000
+========================================================================
+Azure Load Test run started
+========================================================================
+  Scenario         : search_query
+  Test name        : search_query
+  Profile          : U100_T15M
+  Test ID          : search_query_search_query
+  Test Run ID      : search_query_search_query_perf_20260417120000
+  Users            : 100
+  Spawn rate       : 10
+  Run time         : 15m
+  Engine instances : 1
+  ...
+========================================================================
 ```
 
 That's it. You now have a running OSDU performance test.
@@ -272,6 +285,9 @@ scenario_defaults:
 run_scenario:
   scenario: search_query
   profile: U200_T30M        # optional; overrides scenario_defaults.<scenario>.profile
+  test_name: smoke           # optional; stable ALT test-id component.
+                             # ALT test id = <scenario>_<test_name> (reused every run).
+                             # Defaults to the scenario name when unset.
   labels:                    # optional; merged on top of top-level labels
     triggered_by: "nightly-ci"
 ```
@@ -344,6 +360,8 @@ osdu_perf run local \
   [--spawn-rate=N]         \
   [--run-time=DURATION]    \
   [--engine-instances=N]   \  # ignored by `run local`
+  [--test-run-id-prefix=TAG] \
+  [--label KEY=VALUE]      \  # repeatable
   [--host=URL]             \
   [--partition=ID]         \
   [--app-id=GUID]          \
@@ -363,7 +381,14 @@ osdu_perf run local \
   `run local`.
 * `--test-run-id-prefix` *(optional)* — overrides
   `test_run_id_prefix` in `test_config.yaml` (default `perf`). Used in
-  the generated `<scenario>_<prefix>_<UTC_timestamp>` test-run id.
+  the generated `<scenario>_<test_name>_<prefix>_<UTC_timestamp>`
+  test-run id.
+* `--test-name` *(optional, `run azure` only in practice)* — stable
+  component of the ALT test id. The ALT *test* (the load test
+  definition) is named `<scenario>_<test_name>` and is **reused across
+  runs**, so every invocation nests a new run under the same test.
+  Overrides `run_scenario.test_name` in `test_config.yaml`. Defaults
+  to the scenario name when unset.
 * `--label KEY=VALUE` *(optional, repeatable)* — extra telemetry
   labels merged on top of the resolved labels (top-level `labels:` +
   `scenario_defaults.<scenario>.metadata` + `run_scenario.labels`).
@@ -385,9 +410,15 @@ osdu_perf run azure \
   [--spawn-rate=N]             \
   [--run-time=DURATION]        \
   [--engine-instances=N]       \
+  [--test-name=NAME]           \
+  [--test-run-id-prefix=TAG]   \
   [--load-test-name=NAME]      \  # overrides azure_load_test.name
   [--host / --partition / --app-id / --bearer-token / --directory]
 ```
+
+`run azure` creates **one** ALT test per `(scenario, test_name)` pair
+and **reuses** it on every invocation — runs are listed under that
+single test, keeping the ALT UI tidy.
 
 ### `osdu_perf version`
 
@@ -395,32 +426,215 @@ Prints the installed version.
 
 ---
 
-## Test run id
+## CLI flag matrix
 
-Every run gets a unique id of the form:
+Quick lookup. `L` = `run local`, `A` = `run azure`, `—` = ignored.
 
-```
-<scenario>_<test_run_id_prefix>_<YYYYMMDDHHMMSS>
-```
+| Flag                       | L | A | Default                              | Purpose                                                        |
+| -------------------------- | - | - | ------------------------------------ | -------------------------------------------------------------- |
+| `--scenario NAME`          | ✓ | ✓ | `run_scenario.scenario`              | Pick which `perf_<name>_test.py` runs                          |
+| `--profile NAME`           | ✓ | ✓ | `scenario_defaults.<s>.profile`      | Load shape from `profiles:`                                    |
+| `--users N`                | ✓ | ✓ | profile                              | Override `users` only                                          |
+| `--spawn-rate N`           | ✓ | ✓ | profile                              | Override `spawn_rate` only                                     |
+| `--run-time DURATION`      | ✓ | ✓ | profile                              | Override `run_time` (`90s`, `5m`, `1h`)                        |
+| `--engine-instances N`     | — | ✓ | profile                              | ALT parallel engines (ignored locally)                         |
+| `--test-name NAME`         | — | ✓ | `run_scenario.test_name` → scenario  | Stable ALT test-id component (`<scenario>_<test_name>`)        |
+| `--test-run-id-prefix TAG` | ✓ | ✓ | `test_run_id_prefix` (default `perf`)| Prefix token inside the generated run id                       |
+| `--label KEY=VALUE`        | ✓ | ✓ | (none, repeatable)                   | Extra labels merged on top of resolved labels                  |
+| `--load-test-name NAME`    | — | ✓ | `azure_load_test.name`               | Override which ALT resource to target                          |
+| `--host URL`               | ✓ | ✓ | `osdu_environment.host`              | Override OSDU host                                             |
+| `--partition ID`           | ✓ | ✓ | `osdu_environment.partition`         | Override OSDU data partition                                   |
+| `--app-id GUID`            | ✓ | ✓ | `osdu_environment.app_id`            | Override AAD app id (`aud` claim)                              |
+| `--bearer-token TOKEN`     | ✓ | ✓ | `ADME_BEARER_TOKEN` env var          | Skip `az` and pass a pre-acquired token                        |
+| `--directory PATH`         | ✓ | ✓ | `.`                                  | Project root (where config/, locustfile.py live)               |
+| `--headless`               | ✓ | — | false                                | Locust without web UI                                          |
+| `-v` / `--verbose`         | ✓ | ✓ | false                                | Debug logging + full tracebacks                                |
 
-`test_run_id_prefix` defaults to `perf` and can be changed globally in
-`test_config.yaml`:
+**Precedence in every case**: CLI flag > `run_scenario.*` (when it
+supplied the scenario) > `scenario_defaults.<scenario>.*` > top-level
+config > built-in default.
+
+---
+
+## CLI cookbook — copy-pasteable examples
+
+Every recipe assumes you are in the project directory (or pass
+`--directory PATH`). Config used in the examples:
 
 ```yaml
-test_run_id_prefix: "smoke"
+# config/test_config.yaml (excerpt)
+test_run_id_prefix: "perf"
+profiles:
+  U50_T15M:  { users: 50,  spawn_rate: 5,  run_time: "15m" }
+  U100_T15M: { users: 100, spawn_rate: 10, run_time: "15m" }
+scenario_defaults:
+  search_query: { profile: U50_T15M }
+run_scenario:
+  scenario: search_query
+  test_name: smoke
 ```
 
-or per invocation:
+### Scaffolding
 
 ```bash
-osdu_perf run local  --scenario search_query --test-run-id-prefix nightly
-osdu_perf run azure  --scenario search_query --test-run-id-prefix release-25.2
+# Full list of bundled samples
+osdu_perf samples
+
+# Scaffold a search_query project into ./perf-sq
+osdu_perf init --sample search_query --directory perf-sq
+
+# Re-scaffold into an existing directory (overwrites)
+osdu_perf init --sample storage_crud --force
 ```
 
-The timestamp is UTC. The id:
+### Validate config
 
-* becomes the Azure Load Test `testId` / `testRunId` (slugified to
-  `[a-z0-9_-]`) for `osdu_perf run azure`;
+```bash
+# Validate config in cwd
+osdu_perf validate
+
+# Validate a project elsewhere
+osdu_perf validate --directory /path/to/other/project
+```
+
+### Smoke test (local, 30s, 2 users) against dev
+
+```bash
+osdu_perf run local \
+  --scenario search_query \
+  --users 2 --spawn-rate 1 --run-time 30s \
+  --headless \
+  --test-run-id-prefix smoke
+# Test Run ID: search_query_smoke_perf_20260417120000
+```
+
+### Quick local run using the configured defaults
+
+```bash
+# Uses run_scenario.scenario=search_query, profile U50_T15M, test_name=smoke
+osdu_perf run local
+```
+
+### Override just one profile field
+
+```bash
+# Keep U50_T15M but shorten the run for iteration
+osdu_perf run local --scenario search_query --run-time 2m
+```
+
+### Run a different profile without editing config
+
+```bash
+osdu_perf run local --scenario search_query --profile U100_T15M
+```
+
+### CI nightly against Azure Load Testing
+
+```bash
+osdu_perf run azure \
+  --scenario search_query \
+  --profile U200_T30M \
+  --test-name nightly \
+  --test-run-id-prefix $(date -u +%Y%m%d) \
+  --label triggered_by=github-actions \
+  --label build=$GITHUB_RUN_NUMBER \
+  --label commit=$GITHUB_SHA
+# Test ID:     search_query_nightly     (reused forever)
+# Test Run ID: search_query_nightly_20260417_20260417120000
+```
+
+### Release validation (Azure, pre-acquired token, custom host)
+
+```bash
+TOKEN=$(az account get-access-token --resource $APP_ID --query accessToken -o tsv)
+osdu_perf run azure \
+  --scenario search_query \
+  --host https://prod-osdu.example.com \
+  --partition opendes \
+  --app-id $APP_ID \
+  --bearer-token $TOKEN \
+  --test-name release \
+  --test-run-id-prefix v25.6.5 \
+  --users 500 --spawn-rate 50 --run-time 45m --engine-instances 4 \
+  --label release=v25.6.5 --label region=eastus
+```
+
+### Run against an ALT resource other than the default
+
+```bash
+osdu_perf run azure \
+  --scenario search_query \
+  --load-test-name osdu-perf-alt-canary
+```
+
+### Point at a different project without `cd`
+
+```bash
+osdu_perf run local --directory /repos/perf-tests --scenario storage_crud
+```
+
+### Verbose mode (debug logs + full tracebacks)
+
+```bash
+osdu_perf run azure -v --scenario search_query
+```
+
+---
+
+## Environment variables
+
+These are read at CLI or Locust runtime and are equivalent to (or
+complement) CLI flags.
+
+| Variable                         | Consumer           | Effect                                                     |
+| -------------------------------- | ------------------ | ---------------------------------------------------------- |
+| `ADME_BEARER_TOKEN`              | `TokenProvider`    | Bypass `az`; use this token verbatim                       |
+| `TEST_RUN_ID` / `TEST_RUN_ID_NAME` | Locust runtime    | Force a specific run id (overrides the generated one)      |
+| `OSDU_PERF_EXTRA_LABELS`         | Locust runtime     | JSON blob; merged on top of resolved labels (set by CLI)   |
+| `LOCUST_HOST`                    | Locust             | Target URL (set by the framework)                          |
+| `LOCUST_USERS` / `LOCUST_SPAWN_RATE` / `LOCUST_RUN_TIME` | Locust | Load shape (set by the framework from the profile)         |
+| `AZURE_LOAD_TEST`                | `TokenProvider`    | When `true`, uses managed identity instead of `az`         |
+| `TEST_SCENARIO`                  | Locust runtime     | Scenario name (set by the framework)                       |
+| `APPID`                          | `TokenProvider`    | AAD app id used as the token `aud` claim                   |
+
+---
+
+
+## Test id and test run id
+
+`osdu_perf run azure` splits the two:
+
+* **Test id** (stable, one per `(scenario, test_name)`):
+  ```
+  <scenario>_<test_name>
+  ```
+  where `test_name` comes from `--test-name` → `run_scenario.test_name`
+  → the scenario name. The test is **created once** and reused on every
+  subsequent invocation — every run nests under it in the ALT UI.
+
+* **Test run id** (unique per invocation):
+  ```
+  <scenario>_<test_name>_<test_run_id_prefix>_<YYYYMMDDHHMMSS>
+  ```
+  `test_run_id_prefix` defaults to `perf` and can be changed globally
+  in `test_config.yaml`:
+
+  ```yaml
+  test_run_id_prefix: "smoke"
+  ```
+
+  or per invocation:
+
+  ```bash
+  osdu_perf run local  --scenario search_query --test-run-id-prefix nightly
+  osdu_perf run azure  --scenario search_query --test-run-id-prefix release-25.2
+  ```
+
+The timestamp is UTC. The test-run id:
+
+* becomes the Azure Load Test `testRunId` (slugified to
+  `[a-z0-9_-]`) for `osdu_perf run azure`, while the `testId` stays
+  `<scenario>_<test_name>`;
 * is exported to Locust as the `TEST_RUN_ID` env var for `run local`;
 * is used as the base of every request's `correlation-id` header
   (`{test_run_id}-{short-hostname}-{counter}`), so you can correlate

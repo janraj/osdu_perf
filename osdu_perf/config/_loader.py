@@ -209,6 +209,7 @@ def _parse_run_scenario(test: dict[str, Any]) -> RunScenario:
     return RunScenario(
         scenario=_clean_str(section.get("scenario")),
         profile=_clean_str(section.get("profile")),
+        test_name=_clean_str(section.get("test_name")),
         labels=dict(labels),
     )
 

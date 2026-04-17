@@ -1,5 +1,104 @@
 # Changelog
 
+## Unreleased — `sabz/enhancements`
+
+Additive, backward-compatible enhancements on top of `2.0.0`. No
+existing command changes behaviour unless you opt in.
+
+### CLI — load-shape overrides
+
+New flags on both `run local` and `run azure` that override individual
+fields of the resolved profile:
+
+| Flag                    | Overrides                     |
+| ----------------------- | ----------------------------- |
+| `--users N`             | `profile.users`               |
+| `--spawn-rate N`        | `profile.spawn_rate`          |
+| `--run-time DURATION`   | `profile.run_time`            |
+| `--engine-instances N`  | `profile.engine_instances` (ALT only; ignored by `run local`) |
+
+Mix and match — any flag you pass replaces that single field, the rest
+come from the profile. Useful for ad-hoc smoke tests without editing
+YAML.
+
+### CLI — test run id prefix
+
+`test_run_id_prefix` is now a top-level field in
+`config/test_config.yaml` (default `perf`). Controls the token embedded
+in every generated run id. Per-invocation override:
+`--test-run-id-prefix TAG`.
+
+### CLI — stable ALT test id via `test_name`
+
+Every `osdu_perf run azure` invocation used to create a brand-new ALT
+test definition, cluttering the portal. Now the ALT *test id* is stable
+per `(scenario, test_name)` pair and **reused across runs** — each
+invocation nests a new *run* under the same test.
+
+* New config field: `run_scenario.test_name:` in
+  `config/test_config.yaml`.
+* New CLI flag: `--test-name NAME` (overrides the config).
+* Defaults to the scenario name when unset.
+
+Generated identifiers:
+
+```
+Test id:     <scenario>_<test_name>                           # stable
+Test run id: <scenario>_<test_name>_<prefix>_<UTC_timestamp>  # unique
+```
+
+### CLI — extra labels
+
+`--label KEY=VALUE` (repeatable) merges extra telemetry labels on top
+of the resolved set (`labels:` + `scenario_defaults.<scenario>.metadata`
++ `run_scenario.labels`). Propagated to every Kusto row and to Locust
+via the `OSDU_PERF_EXTRA_LABELS` env var.
+
+```bash
+osdu_perf run azure --scenario search_query \
+  --label build=42 --label region=eastus --label commit=$GITHUB_SHA
+```
+
+### CLI — richer startup summary
+
+`osdu_perf run azure` now prints a single readable block on startup
+with scenario, test name, profile, Test ID, Test Run ID, load shape,
+host/partition/app id, merged labels, ALT resource, and a deep-link
+portal URL.
+
+### Scaffolding
+
+New `search_query` sample template: `perf_search_query_test.py.tpl`
+issues a POST to `/api/search/v2/query` with a random OSDU record id,
+configurable via `SEARCH_QUERY_KIND` / `SEARCH_QUERY_RECORD_ID_PREFIX`
+/ `_MIN` / `_MAX` env vars. The scaffolder auto-prefers
+`perf_<sample>_test.py.tpl` when present and falls back to the generic
+template.
+
+### Bug fixes
+
+* `LocalRunner` no longer injects `--tags <scenario>` into the Locust
+  subprocess; that filtered out the generic scaffolded `@task` and
+  raised "No tasks defined on OsduUser".
+* `PerformanceUser.context` attribute renamed to `osdu_context` (7
+  call-sites) so it no longer shadows Locust's `HttpUser.context()`
+  method, which Locust itself calls during `self.client.post(...)` —
+  previously raised "'RequestContext' object is not callable".
+* Azure data-plane client is now constructed with the hostname only.
+  The `azure-developer-loadtesting` SDK formats its base URL as
+  `https://{endpoint}`, so prepending `https://` to the data-plane URI
+  produced `https://https://<host>` and failed TLS verification with a
+  hostname-mismatch error.
+* Locust scripts are now uploaded with ALT file type `TEST_SCRIPT`
+  (not `JMX_FILE`, which is JMeter-only). Required bump of
+  `azure-developer-loadtesting` to `>=1.2.0b1`.
+* Wheel bundling: `*.whl` files in the project directory are now
+  discovered and uploaded with the test, so local-development copies
+  of `osdu_perf` can be installed on the ALT engine without publishing
+  to PyPI.
+
+---
+
 ## 2.0.0 — Full rewrite
 
 Complete refactor for open-source release quality. **Breaking**: no

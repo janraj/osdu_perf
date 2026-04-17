@@ -41,6 +41,26 @@ def resolved_test_run_id_prefix(resolved, args: argparse.Namespace) -> str:
     return getattr(resolved, "test_run_id_prefix", None) or "perf"
 
 
+def resolved_test_name(resolved, args: argparse.Namespace) -> str:
+    """Return the stable ALT test-name component.
+
+    Precedence: ``--test-name`` > ``run_scenario.test_name`` > scenario name.
+    The ALT test id is built as ``<scenario>_<test_name>``; each run nests
+    under this single test definition.
+    """
+    cli = getattr(args, "test_name", None)
+    if cli:
+        cleaned = str(cli).strip()
+        if cleaned:
+            return cleaned
+    configured = getattr(resolved, "test_name", None)
+    if configured:
+        cleaned = str(configured).strip()
+        if cleaned:
+            return cleaned
+    return resolved.scenario
+
+
 def parse_label_overrides(args: argparse.Namespace) -> dict[str, str]:
     """Parse ``--label key=value`` flags into a dict.
 

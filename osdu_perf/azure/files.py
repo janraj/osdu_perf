@@ -12,7 +12,7 @@ from ..telemetry import get_logger
 
 _LOGGER = get_logger("azure.files")
 
-_DEFAULT_SEARCH_PATTERNS = ("*.py", "perf_*.json", "requirements.txt")
+_DEFAULT_SEARCH_PATTERNS = ("*.py", "perf_*.json", "requirements.txt", "*.whl")
 _SECURITY_EXCLUDES = {"config.yaml", "config.yml", ".env", ".config"}
 
 
@@ -46,7 +46,10 @@ class TestFileUploader:
         ordered = sorted(files, key=lambda p: p.name.lower() == "locustfile.py")
         uploaded: list[dict[str, Any]] = []
         for path in ordered:
-            file_type = "JMX_FILE" if path.name.lower() == "locustfile.py" else "ADDITIONAL_ARTIFACTS"
+            # Azure Load Testing identifies Locust entry-point scripts via
+            # ``TEST_SCRIPT`` (``JMX_FILE`` is for JMeter only). Using the
+            # wrong type for a Locust test yields InvalidTestScriptFile.
+            file_type = "TEST_SCRIPT" if path.name.lower() == "locustfile.py" else "ADDITIONAL_ARTIFACTS"
             _LOGGER.info("Uploading %s as %s", path.name, file_type)
             with path.open("rb") as handle:
                 result = self._client.begin_upload_test_file(

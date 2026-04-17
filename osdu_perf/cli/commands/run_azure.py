@@ -14,6 +14,7 @@ from ...errors import ConfigError
 from ._run_common import (
     apply_profile_overrides,
     parse_label_overrides,
+    resolved_test_name,
     resolved_test_run_id_prefix,
 )
 
@@ -40,6 +41,7 @@ def run(args: argparse.Namespace) -> int:
     prefix = resolved_test_run_id_prefix(resolved, args)
     if prefix != config.test_run_id_prefix:
         config = replace(config, test_run_id_prefix=prefix)
+    test_name = resolved_test_name(resolved, args)
     extra_labels = parse_label_overrides(args)
     merged_labels: dict[str, str] = {str(k): str(v) for k, v in resolved.labels.items()}
     merged_labels.update({str(k): str(v) for k, v in extra_labels.items()})
@@ -55,8 +57,40 @@ def run(args: argparse.Namespace) -> int:
         labels=merged_labels,
         scenario=resolved.scenario,
         test_run_id_prefix=prefix,
+        profile_name=resolved.profile_name,
+        test_name=test_name,
     )
     runner = AzureRunner(config)
     result = runner.run(inputs)
-    print(f"Started test run: {result.get('testRunId')}")
+    _print_run_summary(result)
     return 0
+
+
+def _print_run_summary(result: dict) -> None:
+    labels = result.get("labels") or {}
+    labels_str = ", ".join(f"{k}={v}" for k, v in labels.items()) if labels else "(none)"
+    lines = [
+        "",
+        "=" * 72,
+        "Azure Load Test run started",
+        "=" * 72,
+        f"  Scenario         : {result.get('scenario')}",
+        f"  Test name        : {result.get('testName')}",
+        f"  Profile          : {result.get('profileName')}",
+        f"  Test ID          : {result.get('testId')}",
+        f"  Test Run ID      : {result.get('testRunId')}",
+        f"  Users            : {result.get('users')}",
+        f"  Spawn rate       : {result.get('spawnRate')}",
+        f"  Run time         : {result.get('runTime')}",
+        f"  Engine instances : {result.get('engineInstances')}",
+        f"  Host             : {result.get('host')}",
+        f"  Partition        : {result.get('partition')}",
+        f"  App ID           : {result.get('appId')}",
+        f"  Labels           : {labels_str}",
+        f"  ALT resource     : {result.get('loadTestResource')} (rg={result.get('resourceGroup')})",
+        f"  Subscription     : {result.get('subscriptionId')}",
+        f"  Portal           : {result.get('portalUrl')}",
+        "=" * 72,
+        "",
+    ]
+    print("\n".join(lines))

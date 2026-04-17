@@ -133,10 +133,19 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
         help="Override the resolved profile's 'engine_instances' (ALT only).",
     )
     parser.add_argument(
+        "--test-name",
+        help=(
+            "ALT test name (stable across runs). Overrides 'run_scenario.test_name' "
+            "in test_config.yaml. The ALT test ID becomes '<scenario>_<test_name>' "
+            "and each invocation creates a new run under that test."
+        ),
+    )
+    parser.add_argument(
         "--test-run-id-prefix",
         help=(
             "Override the 'test_run_id_prefix' from test_config.yaml "
-            "(default 'perf'). The generated id is '<scenario>_<prefix>_<UTC_ts>'."
+            "(default 'perf'). The generated run id is "
+            "'<scenario>_<test_name>_<prefix>_<UTC_ts>'."
         ),
     )
     parser.add_argument(

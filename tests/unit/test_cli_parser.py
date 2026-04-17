@@ -44,12 +44,14 @@ def test_run_local_load_shape_overrides_parse() -> None:
         "--run-time", "90s",
         "--engine-instances", "2",
         "--test-run-id-prefix", "smoke",
+        "--test-name", "nightly",
     ])
     assert args.users == 42
     assert args.spawn_rate == 3
     assert args.run_time == "90s"
     assert args.engine_instances == 2
     assert args.test_run_id_prefix == "smoke"
+    assert args.test_name == "nightly"
 
 
 def test_apply_profile_overrides_replaces_fields() -> None:
@@ -57,6 +59,7 @@ def test_apply_profile_overrides_replaces_fields() -> None:
 
     from osdu_perf.cli.commands._run_common import (
         apply_profile_overrides,
+        resolved_test_name,
         resolved_test_run_id_prefix,
     )
     from osdu_perf.config import PerformanceProfile
@@ -85,6 +88,41 @@ def test_apply_profile_overrides_replaces_fields() -> None:
             _Resolved(), argparse.Namespace(test_run_id_prefix=None)
         )
         == "perf"
+    )
+
+
+def test_resolved_test_name_precedence() -> None:
+    import argparse
+
+    from osdu_perf.cli.commands._run_common import resolved_test_name
+
+    class _R:
+        scenario = "search_query"
+        test_name = "smoke"
+
+    # CLI wins
+    assert (
+        resolved_test_name(_R(), argparse.Namespace(test_name="nightly"))
+        == "nightly"
+    )
+    # Config wins when CLI absent
+    assert (
+        resolved_test_name(_R(), argparse.Namespace(test_name=None))
+        == "smoke"
+    )
+    # Fallback to scenario
+    class _R2:
+        scenario = "search_query"
+        test_name = None
+
+    assert (
+        resolved_test_name(_R2(), argparse.Namespace(test_name=None))
+        == "search_query"
+    )
+    # Blank CLI value falls through
+    assert (
+        resolved_test_name(_R(), argparse.Namespace(test_name="  "))
+        == "smoke"
     )
 
 

@@ -36,6 +36,15 @@ class AzureRunInputs:
     labels: dict[str, str]
     scenario: str
     test_run_id_prefix: str = "perf"
+    profile_name: str | None = None
+    test_name: str | None = None
+    """Stable ALT test-name component. Defaults to ``scenario`` when unset.
+
+    The ALT *test id* (the load test definition that groups runs) is
+    ``<scenario>_<test_name>`` — this stays stable across invocations so
+    every run nests under the same test. Each invocation still gets a
+    unique *run id*: ``<scenario>_<test_name>_<prefix>_<UTC_ts>``.
+    """
 
 
 class AzureRunner:
@@ -82,10 +91,49 @@ class AzureRunner:
         self._bind_data_plane(resource)
 
         test_name = _build_test_name(inputs)
+        run_id = _build_test_run_id(inputs, test_name)
         self._create_test(test_name, inputs)
         self._upload_files(test_name, inputs.test_directory)
         self._provision_entitlements(inputs)
-        return TestExecutor(self._run_client).start(test_name)  # type: ignore[arg-type]
+        result = TestExecutor(self._run_client).start(  # type: ignore[arg-type]
+            test_name, display_name=run_id
+        )
+        alt = self._config.azure_load_test
+        portal_url = (
+            "https://portal.azure.com/#blade/Microsoft_Azure_CloudNativeTesting/"
+            "TestRunReport.ReactView//resourceId/"
+            f"%2fsubscriptions%2f{alt.subscription_id}"
+            f"%2fresourcegroups%2f{alt.resource_group}"
+            "%2fproviders%2fmicrosoft.loadtestservice%2floadtests%2f"
+            f"{alt.name}"
+            f"/testId/{test_name}"
+            f"/testRunId/{result.get('testRunId')}"
+        )
+        return {
+            **result,
+            "testId": test_name,
+            "scenario": inputs.scenario,
+            "testName": inputs.test_name or inputs.scenario,
+            "profileName": inputs.profile_name or self._resolve_profile_name(inputs.profile),
+            "users": inputs.profile.users,
+            "spawnRate": inputs.profile.spawn_rate,
+            "runTime": inputs.profile.run_time,
+            "engineInstances": inputs.profile.engine_instances,
+            "host": inputs.host,
+            "partition": inputs.partition,
+            "appId": inputs.app_id,
+            "labels": dict(inputs.labels),
+            "loadTestResource": alt.name,
+            "resourceGroup": alt.resource_group,
+            "subscriptionId": alt.subscription_id,
+            "portalUrl": portal_url,
+        }
+
+    def _resolve_profile_name(self, profile: PerformanceProfile) -> str | None:
+        for name, candidate in self._config.profiles.items():
+            if candidate is profile or candidate == profile:
+                return name
+        return None
 
     # ------------------------------------------------------------------
     # Internals
@@ -97,10 +145,15 @@ class AzureRunner:
             raise AzureResourceError(
                 "Load test resource is missing data_plane_uri or principal_id"
             )
-        endpoint = (
-            data_plane_uri if data_plane_uri.startswith("https://")
-            else f"https://{data_plane_uri}"
-        )
+        # The azure-developer-loadtesting SDK formats its base URL as
+        # ``https://{Endpoint}``, so pass just the hostname (strip any
+        # scheme we might have received).
+        endpoint = data_plane_uri
+        for prefix in ("https://", "http://"):
+            if endpoint.startswith(prefix):
+                endpoint = endpoint[len(prefix):]
+                break
+        endpoint = endpoint.rstrip("/")
         self._principal_id = principal_id
         self._admin_client = LoadTestAdministrationClient(endpoint, self._credential)
         self._run_client = LoadTestRunClient(endpoint, self._credential)
@@ -164,10 +217,24 @@ class AzureRunner:
 # Helpers
 # ----------------------------------------------------------------------
 def _build_test_name(inputs: AzureRunInputs) -> str:
+    """ALT test id — stable across runs so every invocation reuses it.
+
+    Formed as ``<scenario>_<test_name>`` (``test_name`` defaults to the
+    scenario when not supplied, giving ``<scenario>_<scenario>``; set
+    ``run_scenario.test_name`` or ``--test-name`` to customise).
+    """
+    component = (inputs.test_name or inputs.scenario).strip()
+    return _slug(f"{inputs.scenario}_{component}")
+
+
+def _build_test_run_id(inputs: AzureRunInputs, test_name: str) -> str:
+    """Unique ALT test-run id, nested under ``test_name``.
+
+    Formed as ``<test_name>_<prefix>_<UTC_ts>``.
+    """
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    prefix = inputs.test_run_id_prefix or "perf"
-    raw = f"{inputs.scenario}_{prefix}_{timestamp}"
-    return _slug(raw)
+    prefix = (inputs.test_run_id_prefix or "perf").strip() or "perf"
+    return _slug(f"{test_name}_{prefix}_{timestamp}")
 
 
 def _slug(value: str) -> str:

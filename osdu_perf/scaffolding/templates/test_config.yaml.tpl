@@ -11,7 +11,7 @@ labels:
   version: "25.2.35"
 
 # Token used to build the generated test run id:
-#   <scenario>_<test_run_id_prefix>_<UTC_YYYYMMDDHHMMSS>
+#   <scenario>_<test_name>_<test_run_id_prefix>_<UTC_YYYYMMDDHHMMSS>
 # Override per invocation with `--test-run-id-prefix`.
 test_run_id_prefix: "perf"
 
@@ -50,5 +50,9 @@ scenario_defaults:
 run_scenario:
   scenario: ${SCENARIO_NAME}
   # profile: U100_T15M           # optional override of scenario_defaults.<scenario>.profile
+  # test_name: smoke              # stable ALT test id component. Final test id =
+  #                               #   <scenario>_<test_name>  (defaults to <scenario>_<scenario>).
+  #                               # Override per invocation with --test-name. Every run
+  #                               # nests under this one ALT test definition.
   # labels:                       # optional extra labels merged on top
   #   triggered_by: "nightly-ci"
