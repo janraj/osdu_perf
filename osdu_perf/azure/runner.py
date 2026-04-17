@@ -51,23 +51,23 @@ class AzureRunner:
     _API_VERSION = "2024-12-01-preview"
 
     def __init__(self, config: AppConfig) -> None:
-        infra = config.azure_infra
-        if not infra.subscription_id:
-            raise ConfigError("azure_infra.subscription_id is required")
-        if not infra.resource_group:
-            raise ConfigError("azure_infra.resource_group is required")
-        if not infra.azure_load_test.name:
-            raise ConfigError("azure_infra.azure_load_test.name is required")
+        alt = config.azure_load_test
+        if not alt.subscription_id:
+            raise ConfigError("azure_load_test.subscription_id is required")
+        if not alt.resource_group:
+            raise ConfigError("azure_load_test.resource_group is required")
+        if not alt.name:
+            raise ConfigError("azure_load_test.name is required")
 
         self._config = config
         self._credential = AzureCliCredential()
         self._provisioner = AzureResourceProvisioner(
-            subscription_id=infra.subscription_id,
-            resource_group=infra.resource_group,
-            load_test_name=infra.azure_load_test.name,
-            location=infra.location,
+            subscription_id=alt.subscription_id,
+            resource_group=alt.resource_group,
+            load_test_name=alt.name,
+            location=alt.location,
             credential=self._credential,
-            allow_resource_creation=infra.allow_resource_creation,
+            allow_resource_creation=alt.allow_resource_creation,
         )
         self._admin_client: LoadTestAdministrationClient | None = None
         self._run_client: LoadTestRunClient | None = None

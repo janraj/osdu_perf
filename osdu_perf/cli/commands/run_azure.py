@@ -18,13 +18,9 @@ def run(args: argparse.Namespace) -> int:
     config = load_config(project_dir)
 
     if args.load_test_name:
-        infra = config.azure_infra
         config = replace(
             config,
-            azure_infra=replace(
-                infra,
-                azure_load_test=replace(infra.azure_load_test, name=args.load_test_name),
-            ),
+            azure_load_test=replace(config.azure_load_test, name=args.load_test_name),
         )
 
     env = config.osdu_env

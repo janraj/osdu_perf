@@ -15,7 +15,7 @@ def _write(tmp_path: Path, name: str, text: str) -> Path:
 
 
 def test_osdu_environment_and_metadata_come_from_test_config(tmp_path: Path) -> None:
-    system = _write(tmp_path, "system.yaml", "azure_infra:\n  location: eastus\n")
+    system = _write(tmp_path, "system.yaml", "azure_load_test:\n  location: eastus\n")
     test = _write(
         tmp_path,
         "test.yaml",
@@ -125,3 +125,35 @@ def test_scenario_missing_raises(tmp_path: Path) -> None:
     config = load_from_paths(system, test)
     with pytest.raises(ScenarioNotFoundError):
         config.scenario("nope")
+
+
+def test_azure_load_test_and_kusto_export_are_separate_sections(tmp_path: Path) -> None:
+    system = _write(
+        tmp_path,
+        "system.yaml",
+        """
+azure_load_test:
+  subscription_id: sub-1
+  resource_group: rg-1
+  location: westus2
+  allow_resource_creation: true
+  name: my-alt
+kusto_export:
+  cluster_uri: https://foo.eastus.kusto.windows.net
+  database: perf-db
+""",
+    )
+    test = _write(tmp_path, "test.yaml", "scenarios: {}\n")
+    config = load_from_paths(system, test)
+
+    assert config.azure_load_test.subscription_id == "sub-1"
+    assert config.azure_load_test.resource_group == "rg-1"
+    assert config.azure_load_test.location == "westus2"
+    assert config.azure_load_test.allow_resource_creation is True
+    assert config.azure_load_test.name == "my-alt"
+
+    assert config.kusto_export.is_configured
+    assert config.kusto_export.database == "perf-db"
+    # ingest_uri auto-derived from cluster_uri
+    assert config.kusto_export.ingest_uri == "https://ingest-foo.eastus.kusto.windows.net"
+

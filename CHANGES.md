@@ -58,12 +58,21 @@ Bundled samples: `storage_crud`, `search_query`, `schema_browse`. Run
 
 Two typed YAML files with a clean split between platform and test:
 
-* `config/system_config.yaml` — **platform only**: `azure_infra`
-  (subscription, resource group, ALT resource name) and the optional
-  `kusto` telemetry sink. Only required for `osdu_perf run azure`.
+* `config/system_config.yaml` — **platform only**, with two independent
+  top-level sections:
+  * `azure_load_test` — subscription, resource group, location,
+    `allow_resource_creation`, and ALT resource `name`. Used only by
+    `osdu_perf run azure`.
+  * `kusto_export` — optional telemetry sink (`cluster_uri` or
+    `ingest_uri`, plus `database`). Used by **both** `osdu_perf run
+    local` and `osdu_perf run azure`.
 * `config/test_config.yaml` — **everything about the test**:
   `osdu_environment` (host/partition/app_id), `test_metadata`,
   `test_settings` (defaults), `profiles`, and `scenarios`.
+
+The previous flat `azure_infra:` block (which nested `azure_load_test`
+and `kusto`) no longer exists — the two concerns are now siblings at
+the top of `system_config.yaml`.
 
 `test_metadata` is now pure passthrough — every key/value is copied
 verbatim to each Kusto telemetry row and the framework never interprets
@@ -121,7 +130,8 @@ Catching this base class is enough for CLI wrappers:
 
 Table names are stable (`LocustMetricsV2`, `LocustExceptionsV2`,
 `LocustTestSummaryV2`). Ingestion is skipped automatically when
-`azure_infra.kusto` is not configured.
+`kusto_export` is not configured, and is invoked from Locust's
+`test_stop` hook for **both** local and Azure Load Testing runs.
 
 ### Authentication
 
@@ -176,8 +186,8 @@ osdu_perf/
 
 ### Added modules / classes
 
-* `config/_models.py`: `AppConfig`, `OsduEnv`, `AzureInfra`,
-  `AzureLoadTestRef`, `KustoConfig`, `TestMetadata`, `TestDefaults`,
+* `config/_models.py`: `AppConfig`, `OsduEnv`, `AzureLoadTest`,
+  `KustoConfig`, `TestMetadata`, `TestDefaults`,
   `PerformanceProfile`, `Scenario`, `WaitTime` — all frozen
   dataclasses. Merging logic (`resolved_settings`) lives on `AppConfig`.
 * `config/_loader.py`: `load_config(search_root=None)` walks up from cwd

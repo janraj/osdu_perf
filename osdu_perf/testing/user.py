@@ -170,7 +170,7 @@ def _on_test_stop(environment, **_kwargs):
     if ctx is None:
         _LOGGER.debug("test_stop: no RequestContext — nothing to ingest")
         return
-    kusto_cfg = ctx.config.azure_infra.kusto
+    kusto_cfg = ctx.config.kusto_export
     if not kusto_cfg.is_configured:
         _LOGGER.info("Kusto not configured — skipping telemetry ingestion")
         return

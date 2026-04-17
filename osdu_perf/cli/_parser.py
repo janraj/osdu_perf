@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_common_args(run_azure)
     run_azure.add_argument(
         "--load-test-name",
-        help="Override azure_infra.azure_load_test.name from config.",
+        help="Override azure_load_test.name from config.",
     )
 
     # validate --------------------------------------------------------

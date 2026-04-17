@@ -16,15 +16,24 @@ class OsduEnv:
 
 
 @dataclass(frozen=True)
-class AzureLoadTestRef:
-    """Pointer to an existing Azure Load Test resource."""
+class AzureLoadTest:
+    """Azure Load Testing resource coordinates (used by ``run azure`` only)."""
 
+    subscription_id: str | None = None
+    resource_group: str | None = None
+    location: str = "eastus"
+    allow_resource_creation: bool = False
     name: str | None = None
 
 
 @dataclass(frozen=True)
 class KustoConfig:
-    """Kusto (Azure Data Explorer) destination for test telemetry."""
+    """Kusto (Azure Data Explorer) destination for test telemetry.
+
+    Applies to both ``run local`` and ``run azure``. When configured,
+    every completed Locust run ingests a summary row into the configured
+    database.
+    """
 
     cluster_uri: str | None = None
     ingest_uri: str | None = None
@@ -33,18 +42,6 @@ class KustoConfig:
     @property
     def is_configured(self) -> bool:
         return bool(self.database and (self.cluster_uri or self.ingest_uri))
-
-
-@dataclass(frozen=True)
-class AzureInfra:
-    """Azure infrastructure referenced by ``osdu_perf run azure``."""
-
-    subscription_id: str | None = None
-    resource_group: str | None = None
-    location: str = "eastus"
-    allow_resource_creation: bool = False
-    azure_load_test: AzureLoadTestRef = field(default_factory=AzureLoadTestRef)
-    kusto: KustoConfig = field(default_factory=KustoConfig)
 
 
 @dataclass(frozen=True)
@@ -100,7 +97,8 @@ class AppConfig:
     """Top-level configuration tree."""
 
     osdu_env: OsduEnv
-    azure_infra: AzureInfra
+    azure_load_test: AzureLoadTest
+    kusto_export: KustoConfig
     test_metadata: TestMetadata
     defaults: TestDefaults
     profiles: dict[str, PerformanceProfile]

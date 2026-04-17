@@ -16,8 +16,7 @@ import yaml
 from ..errors import ConfigError
 from ._models import (
     AppConfig,
-    AzureInfra,
-    AzureLoadTestRef,
+    AzureLoadTest,
     KustoConfig,
     OsduEnv,
     PerformanceProfile,
@@ -48,7 +47,8 @@ def load_from_paths(
 
     return AppConfig(
         osdu_env=_parse_osdu_env(test),
-        azure_infra=_parse_azure_infra(system),
+        azure_load_test=_parse_azure_load_test(system),
+        kusto_export=_parse_kusto_export(system),
         test_metadata=_parse_test_metadata(test),
         defaults=_parse_defaults(test),
         profiles=_parse_profiles(test),
@@ -107,29 +107,33 @@ def _parse_osdu_env(test: dict[str, Any]) -> OsduEnv:
     )
 
 
-def _parse_azure_infra(system: dict[str, Any]) -> AzureInfra:
-    section = system.get("azure_infra") or {}
-    alt = section.get("azure_load_test") or {}
-    kusto = section.get("kusto") or {}
-
-    cluster_uri = _clean_str(kusto.get("cluster_uri"))
-    ingest_uri = _clean_str(kusto.get("ingest_uri"))
-    if cluster_uri and not ingest_uri:
-        ingest_uri = _ingest_from_cluster(cluster_uri)
-    elif ingest_uri and not cluster_uri:
-        cluster_uri = _cluster_from_ingest(ingest_uri)
-
-    return AzureInfra(
+def _parse_azure_load_test(system: dict[str, Any]) -> AzureLoadTest:
+    section = system.get("azure_load_test") or {}
+    if not isinstance(section, dict):
+        return AzureLoadTest()
+    return AzureLoadTest(
         subscription_id=_clean_str(section.get("subscription_id")),
         resource_group=_clean_str(section.get("resource_group")),
         location=_clean_str(section.get("location")) or "eastus",
         allow_resource_creation=_as_bool(section.get("allow_resource_creation", False)),
-        azure_load_test=AzureLoadTestRef(name=_clean_str(alt.get("name"))),
-        kusto=KustoConfig(
-            cluster_uri=cluster_uri,
-            ingest_uri=ingest_uri,
-            database=_clean_str(kusto.get("database")),
-        ),
+        name=_clean_str(section.get("name")),
+    )
+
+
+def _parse_kusto_export(system: dict[str, Any]) -> KustoConfig:
+    section = system.get("kusto_export") or {}
+    if not isinstance(section, dict):
+        return KustoConfig()
+    cluster_uri = _clean_str(section.get("cluster_uri"))
+    ingest_uri = _clean_str(section.get("ingest_uri"))
+    if cluster_uri and not ingest_uri:
+        ingest_uri = _ingest_from_cluster(cluster_uri)
+    elif ingest_uri and not cluster_uri:
+        cluster_uri = _cluster_from_ingest(ingest_uri)
+    return KustoConfig(
+        cluster_uri=cluster_uri,
+        ingest_uri=ingest_uri,
+        database=_clean_str(section.get("database")),
     )
 
 

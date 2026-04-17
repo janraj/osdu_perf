@@ -104,15 +104,14 @@ osdu_perf run local --scenario search_query --headless
 
 ### 7. (Optional) Run on Azure Load Testing
 
-Add an `azure_infra` block to `config/system_config.yaml`:
+Add an `azure_load_test` block to `config/system_config.yaml`:
 
 ```yaml
-azure_infra:
+azure_load_test:
   subscription_id: "<subscription-id>"
   resource_group: "osdu-perf-rg"        # must already exist
   location: "eastus"
-  azure_load_test:
-    name: "osdu-perf-alt"               # existing ALT resource
+  name: "osdu-perf-alt"                 # existing ALT resource
 ```
 
 Then:
@@ -210,23 +209,29 @@ from the current working directory looking for them.
 
 ### `config/system_config.yaml` — platform only
 
-This file describes **where** tests run. It's only required for
-`osdu_perf run azure`.
+This file describes **where** tests run and **where** telemetry goes.
+Both sections are optional and independent:
+
+* `azure_load_test` — target for `osdu_perf run azure`. Not used by
+  `run local`.
+* `kusto_export` — optional telemetry sink. Used by **both** `run local`
+  and `run azure`; when configured, every completed run ingests a
+  summary row into the database.
 
 ```yaml
-azure_infra:
+# Required only for `osdu_perf run azure`.
+azure_load_test:
   subscription_id: "<subscription-id>"
   resource_group: "osdu-perf-rg"
   location: "eastus"
-  allow_resource_creation: false  # true lets osdu_perf create RG + ALT
-  azure_load_test:
-    name: "osdu-perf-alt"
+  allow_resource_creation: false   # true lets osdu_perf create RG + ALT
+  name: "osdu-perf-alt"
 
-  # Optional Kusto telemetry sink. Provide EITHER cluster_uri OR
-  # ingest_uri — the other is derived automatically.
-  kusto:
-    cluster_uri: "https://<cluster>.<region>.kusto.windows.net"
-    database: "osdu-perf"
+# Optional telemetry sink — applies to local and azure runs alike.
+# Provide EITHER cluster_uri OR ingest_uri (the other is derived).
+kusto_export:
+  cluster_uri: "https://<cluster>.<region>.kusto.windows.net"
+  database: "osdu-perf"
 ```
 
 ### `config/test_config.yaml` — everything about the test
@@ -361,7 +366,7 @@ ALT managed identity, start the run.
 osdu_perf run azure \
   --scenario=<name>            \
   [--profile=<name>]           \
-  [--load-test-name=NAME]      \  # overrides azure_infra.azure_load_test.name
+  [--load-test-name=NAME]      \  # overrides azure_load_test.name
   [--host / --partition / --app-id / --bearer-token / --directory]
 ```
 
@@ -423,7 +428,7 @@ print(settings.users, settings.run_time)
 | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `error: ScenarioNotFoundError: Scenario 'X' not found ...`           | Add `X:` under `scenarios:` in `config/test_config.yaml`, or use one that's listed.                 |
 | `error: AuthError: Unable to acquire token. Ensure Azure CLI ...`    | Run `az login`. Or set `ADME_BEARER_TOKEN` / pass `--bearer-token`.                                 |
-| `error: AzureResourceError: Azure Load Test resource '...' missing` | Create the ALT resource, fix `azure_infra.azure_load_test.name`, or set `allow_resource_creation: true`. |
+| `error: AzureResourceError: Azure Load Test resource '...' missing` | Create the ALT resource, fix `azure_load_test.name`, or set `allow_resource_creation: true`. |
 | `error: ConfigError: host, partition, and app_id must all be provided.` | Fill in `osdu_environment` in `system_config.yaml`, or pass `--host/--partition/--app-id`.      |
 | `Locust is not installed`                                            | `pip install locust` (it's a transitive dependency, should already be present).                     |
 | Tokens rejected with `aud mismatch`                                  | Do **not** pass `--scope api://<id>/.default` yourself — the framework uses `--resource <app_id>`.  |
@@ -500,9 +505,8 @@ extending an osdu_perf project.
    5. Run `osdu_perf validate` then `osdu_perf run local --scenario <name>`.
 
 3. **User asks to run on Azure Load Testing**
-   1. Ensure `azure_infra` block exists in `system_config.yaml` with
-      valid `subscription_id`, `resource_group`, and
-      `azure_load_test.name`.
+   1. Ensure an `azure_load_test` block exists in `system_config.yaml`
+      with valid `subscription_id`, `resource_group`, and `name`.
    2. The resource group **and** ALT resource must exist — or set
       `allow_resource_creation: true` (and have `Contributor` at
       subscription scope).

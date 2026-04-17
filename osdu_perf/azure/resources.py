@@ -62,7 +62,7 @@ class AzureResourceProvisioner:
                 raise AzureResourceError(
                     f"Resource group '{self._resource_group}' does not exist in "
                     f"subscription '{self._subscription_id}'. Either create it "
-                    f"manually or set 'azure_infra.allow_resource_creation: true' "
+                    f"manually or set 'azure_load_test.allow_resource_creation: true' "
                     f"in system_config.yaml."
                 ) from exc
 
@@ -95,7 +95,7 @@ class AzureResourceProvisioner:
                     f"Azure Load Test resource '{self._load_test_name}' does not "
                     f"exist in resource group '{self._resource_group}'. Either "
                     f"create it manually, check --load-test-name, or set "
-                    f"'azure_infra.allow_resource_creation: true' in "
+                    f"'azure_load_test.allow_resource_creation: true' in "
                     f"system_config.yaml."
                 ) from exc
 
