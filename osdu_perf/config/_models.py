@@ -49,23 +49,16 @@ class AzureInfra:
 
 @dataclass(frozen=True)
 class TestMetadata:
-    """Free-form labels applied to every Kusto telemetry row.
+    """Opaque labels applied verbatim to every Kusto telemetry row.
 
-    ``performance_tier`` and ``version`` are conventional keys: the first
-    selects a :class:`PerformanceProfile`; the second is a free-form tag.
-    Any other keys are passed through verbatim.
+    The framework does not interpret any key. Add whatever makes your
+    dashboards useful (``version``, ``build_id``, ``region``, etc.).
     """
 
-    performance_tier: str = "standard"
-    version: str | None = None
-    extras: dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"performance_tier": self.performance_tier}
-        if self.version is not None:
-            data["version"] = self.version
-        data.update(self.extras)
-        return data
+        return dict(self.data)
 
 
 @dataclass(frozen=True)
@@ -89,7 +82,7 @@ class TestDefaults:
 
 @dataclass(frozen=True)
 class PerformanceProfile(TestDefaults):
-    """Per-tier overrides of :class:`TestDefaults`."""
+    """Named settings bundle from ``test_config.yaml:profiles``."""
 
 
 @dataclass(frozen=True)
@@ -97,6 +90,7 @@ class Scenario:
     """A named test scenario from ``test_config.yaml:scenarios``."""
 
     name: str
+    profile: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     overrides: dict[str, Any] = field(default_factory=dict)
 
@@ -126,20 +120,46 @@ class AppConfig:
             )
         return self.scenarios[name]
 
-    def profile(self, tier: str | None = None) -> PerformanceProfile:
-        """Return the profile for ``tier`` (or the test_metadata tier)."""
-        key = (tier or self.test_metadata.performance_tier or "standard").lower()
-        return self.profiles.get(key, PerformanceProfile())
+    def profile(self, name: str | None = None) -> PerformanceProfile | None:
+        """Return the named profile, the ``default`` profile, or ``None``.
 
-    def resolved_settings(self, scenario_name: str) -> TestDefaults:
-        """Merge defaults → profile → scenario overrides into one view."""
+        Explicit ``name`` is required to exist. Otherwise returns the
+        ``default`` profile if defined, else ``None`` (caller should
+        treat this as "no profile layer, use raw :class:`TestDefaults`").
+        """
+        if name:
+            key = name.lower()
+            if key not in self.profiles:
+                from ..errors import ConfigError
+
+                available = ", ".join(sorted(self.profiles)) or "(none configured)"
+                raise ConfigError(
+                    f"Profile '{name}' not found in test_config.yaml. "
+                    f"Available profiles: {available}."
+                )
+            return self.profiles[key]
+        return self.profiles.get("default")
+
+    def resolved_settings(
+        self,
+        scenario_name: str,
+        profile_name: str | None = None,
+    ) -> TestDefaults:
+        """Merge defaults → profile → scenario overrides into one view.
+
+        Profile resolution order: ``profile_name`` arg wins, then the
+        scenario's own ``profile:`` field, then the ``default`` profile
+        if defined, otherwise no profile layer is applied.
+        """
         from dataclasses import replace
 
-        merged = replace(self.defaults)
-        profile = self.profile()
-        merged = _merge_defaults(merged, profile)
-
         scenario = self.scenario(scenario_name)
+        effective_profile = profile_name or scenario.profile
+        profile = self.profile(effective_profile)
+
+        merged = replace(self.defaults)
+        if profile is not None:
+            merged = _merge_defaults(merged, profile)
         merged = _merge_mapping(merged, scenario.overrides)
         return merged
 

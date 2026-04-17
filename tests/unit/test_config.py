@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from osdu_perf.config import load_from_paths
-from osdu_perf.errors import ScenarioNotFoundError
+from osdu_perf.errors import ConfigError, ScenarioNotFoundError
 
 
 def _write(tmp_path: Path, name: str, text: str) -> Path:
@@ -14,41 +14,113 @@ def _write(tmp_path: Path, name: str, text: str) -> Path:
     return path
 
 
-def test_load_from_paths_returns_typed_config(tmp_path: Path) -> None:
-    system = _write(
+def test_osdu_environment_and_metadata_come_from_test_config(tmp_path: Path) -> None:
+    system = _write(tmp_path, "system.yaml", "azure_infra:\n  location: eastus\n")
+    test = _write(
         tmp_path,
-        "system.yaml",
+        "test.yaml",
         """
 osdu_environment:
   host: https://example.com
   partition: opendes
   app_id: abc-123
 test_metadata:
-  performance_tier: flex
-""",
-    )
-    test = _write(
-        tmp_path,
-        "test.yaml",
-        """
-test_settings:
-  users: 5
+  version: "25.2.35"
+  build_id: "abc"
 scenarios:
   smoke:
     users: 20
-    metadata:
-      kind: smoke
 """,
     )
     config = load_from_paths(system, test)
     assert config.osdu_env.host == "https://example.com"
-    assert "smoke" in config.scenarios
-    resolved = config.resolved_settings("smoke")
-    assert resolved.users == 20
+    assert config.test_metadata.as_dict() == {"version": "25.2.35", "build_id": "abc"}
+
+
+def test_cli_profile_overrides_scenario_profile(tmp_path: Path) -> None:
+    system = _write(tmp_path, "s.yaml", "")
+    test = _write(
+        tmp_path,
+        "t.yaml",
+        """
+profiles:
+  default: { users: 10 }
+  flex:    { users: 100, run_time: "5m" }
+scenarios:
+  smoke:
+    profile: default
+""",
+    )
+    config = load_from_paths(system, test)
+    assert config.resolved_settings("smoke").users == 10
+    assert config.resolved_settings("smoke", profile_name="flex").users == 100
+    assert config.resolved_settings("smoke", profile_name="flex").run_time == "5m"
+
+
+def test_scenario_overrides_win_over_profile(tmp_path: Path) -> None:
+    system = _write(tmp_path, "s.yaml", "")
+    test = _write(
+        tmp_path,
+        "t.yaml",
+        """
+profiles:
+  flex: { users: 100 }
+scenarios:
+  smoke:
+    profile: flex
+    users: 25
+""",
+    )
+    config = load_from_paths(system, test)
+    assert config.resolved_settings("smoke").users == 25
+
+
+def test_default_profile_used_when_nothing_specified(tmp_path: Path) -> None:
+    system = _write(tmp_path, "s.yaml", "")
+    test = _write(
+        tmp_path,
+        "t.yaml",
+        """
+profiles:
+  default: { users: 7 }
+scenarios:
+  smoke: {}
+""",
+    )
+    config = load_from_paths(system, test)
+    assert config.resolved_settings("smoke").users == 7
+
+
+def test_falls_back_to_defaults_when_no_default_profile(tmp_path: Path) -> None:
+    system = _write(tmp_path, "s.yaml", "")
+    test = _write(
+        tmp_path,
+        "t.yaml",
+        """
+test_settings:
+  users: 3
+scenarios:
+  smoke: {}
+""",
+    )
+    config = load_from_paths(system, test)
+    assert config.resolved_settings("smoke").users == 3
+
+
+def test_unknown_profile_raises(tmp_path: Path) -> None:
+    system = _write(tmp_path, "s.yaml", "")
+    test = _write(
+        tmp_path,
+        "t.yaml",
+        "profiles:\n  default: { users: 1 }\nscenarios:\n  smoke: {}\n",
+    )
+    config = load_from_paths(system, test)
+    with pytest.raises(ConfigError):
+        config.resolved_settings("smoke", profile_name="nope")
 
 
 def test_scenario_missing_raises(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "osdu_environment: {}\n")
+    system = _write(tmp_path, "s.yaml", "")
     test = _write(tmp_path, "t.yaml", "scenarios: {}\n")
     config = load_from_paths(system, test)
     with pytest.raises(ScenarioNotFoundError):

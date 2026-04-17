@@ -31,6 +31,8 @@ These are everything a test author or CI pipeline will notice.
   `--bearer-token`, `--spawn-rate`, `--run-time`.
 * `--scenario` is required for both run subcommands and must exist in
   `config/test_config.yaml`.
+* `--profile` is optional on both `run local` and `run azure`; it
+  overrides the scenario's `profile:` field.
 * Error output is clean by default — pass `-v` / `--verbose` for the full
   traceback.
 
@@ -54,17 +56,30 @@ Bundled samples: `storage_crud`, `search_query`, `schema_browse`. Run
 
 ### Configuration
 
-Two typed YAML files replace the old ad-hoc config:
+Two typed YAML files with a clean split between platform and test:
 
-* `config/system_config.yaml` — OSDU environment (host, partition,
-  app_id), Azure infrastructure, Kusto telemetry, free-form
-  `test_metadata`.
-* `config/test_config.yaml` — default test settings, per-tier
-  `performance_tier_profiles`, and named `scenarios`.
+* `config/system_config.yaml` — **platform only**: `azure_infra`
+  (subscription, resource group, ALT resource name) and the optional
+  `kusto` telemetry sink. Only required for `osdu_perf run azure`.
+* `config/test_config.yaml` — **everything about the test**:
+  `osdu_environment` (host/partition/app_id), `test_metadata`,
+  `test_settings` (defaults), `profiles`, and `scenarios`.
 
-Resolution order for a scenario's effective settings is
-`defaults → profile → scenario overrides`. The `performance_tier` key in
-`test_metadata` selects which profile applies.
+`test_metadata` is now pure passthrough — every key/value is copied
+verbatim to each Kusto telemetry row and the framework never interprets
+it.
+
+Profile selection is explicit via the CLI or the scenario itself:
+
+```
+--profile <name>   >   scenarios.<name>.profile   >   profiles.default   >   no profile
+```
+
+Then `scenarios.<name>` overrides (`users`, `spawn_rate`, `run_time`, …)
+always win over the selected profile.
+
+The old section name `performance_tier_profiles:` was renamed to
+`profiles:` to match the new model.
 
 ### Public Python API
 

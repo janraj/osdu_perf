@@ -22,7 +22,7 @@ def run(args: argparse.Namespace) -> int:
     if not (host and partition and app_id):
         raise ConfigError("host, partition, and app_id must all be provided.")
 
-    settings = config.resolved_settings(args.scenario)
+    settings = config.resolved_settings(args.scenario, profile_name=args.profile)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = LocalRunInputs(

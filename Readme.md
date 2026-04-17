@@ -55,9 +55,10 @@ my-osdu-perf/
 └── README.md
 ```
 
-### 3. Edit `config/system_config.yaml`
+### 3. Edit `config/test_config.yaml`
 
-Open it and fill in the three required fields under `osdu_environment`:
+Open it and fill in the three required fields under `osdu_environment`
+(test settings and scenarios already have sensible defaults):
 
 ```yaml
 osdu_environment:
@@ -207,21 +208,12 @@ automatically.
 Two YAML files under `config/` drive everything. The loader walks up
 from the current working directory looking for them.
 
-### `config/system_config.yaml`
+### `config/system_config.yaml` — platform only
+
+This file describes **where** tests run. It's only required for
+`osdu_perf run azure`.
 
 ```yaml
-# --- Required -------------------------------------------------------
-osdu_environment:
-  host: "https://your-osdu-host.com"
-  partition: "opendes"
-  app_id: "<azure-ad-app-id>"
-
-# --- Free-form labels attached to every Kusto telemetry row ---------
-test_metadata:
-  performance_tier: "standard"   # selects a profile below
-  version: "25.2.35"             # any additional keys also flow through
-
-# --- Required only for `osdu_perf run azure` ------------------------
 azure_infra:
   subscription_id: "<subscription-id>"
   resource_group: "osdu-perf-rg"
@@ -237,10 +229,24 @@ azure_infra:
     database: "osdu-perf"
 ```
 
-### `config/test_config.yaml`
+### `config/test_config.yaml` — everything about the test
 
 ```yaml
-# Defaults used when a scenario or profile omits a value.
+# Required: OSDU instance coordinates.
+osdu_environment:
+  host: "https://your-osdu-host.com"
+  partition: "opendes"
+  app_id: "<azure-ad-app-id>"
+
+# Free-form labels copied verbatim to every Kusto telemetry row.
+# The framework does not interpret any key here — use whatever makes
+# your dashboards useful.
+test_metadata:
+  version: "25.2.35"
+  build_id: "ci-4321"
+
+# Defaults used when neither the selected profile nor the scenario
+# overrides a value.
 test_settings:
   users: 10
   spawn_rate: 2
@@ -249,26 +255,38 @@ test_settings:
   default_wait_time: { min: 1, max: 3 }
   test_name_prefix: "osdu_perf_test"
 
-# Per-tier overrides, selected by test_metadata.performance_tier.
-performance_tier_profiles:
-  standard: { users: 10, spawn_rate: 2, run_time: "60s"  }
-  flex:     { users: 50, spawn_rate: 5, run_time: "5m"   }
+# Named settings bundles. Selected via `--profile <name>`, a scenario's
+# `profile:` field, or the `default` profile as a fallback.
+profiles:
+  default: { users: 10, spawn_rate: 2, run_time: "60s" }
+  flex:    { users: 50, spawn_rate: 5, run_time: "5m"  }
 
 # Named scenarios — pick one with `--scenario <name>`.
 scenarios:
   search_query:
-    users: 20
+    profile: default        # optional; --profile CLI flag overrides this
+    users: 20               # scenario-level overrides win over the profile
     spawn_rate: 5
     run_time: "2m"
     metadata:
       scenario_kind: "query"
 ```
 
-Resolution order for a scenario's effective settings:
+### Profile resolution
+
+When you run a scenario, its effective settings are computed by merging:
 
 ```
-defaults  →  profile (test_metadata.performance_tier)  →  scenario overrides
+test_settings (defaults)
+  ↓
+profile (if any):
+    --profile CLI flag  >  scenario.profile  >  profiles.default  >  (no profile)
+  ↓
+scenario overrides (users/spawn_rate/run_time/…)
 ```
+
+`test_metadata` is pure passthrough — it never affects what gets run,
+only what gets logged to Kusto.
 
 ---
 
@@ -317,6 +335,7 @@ Spawn Locust as a subprocess.
 ```bash
 osdu_perf run local \
   --scenario=<name>        \
+  [--profile=<name>]       \
   [--host=URL]             \
   [--partition=ID]         \
   [--app-id=GUID]          \
@@ -327,6 +346,8 @@ osdu_perf run local \
 
 * `--scenario` **required** — must match a key under `scenarios:` in
   `test_config.yaml`.
+* `--profile` — override the scenario's `profile:` field. Falls back to
+  the `default` profile, then to `test_settings` defaults.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.
@@ -339,6 +360,7 @@ ALT managed identity, start the run.
 ```bash
 osdu_perf run azure \
   --scenario=<name>            \
+  [--profile=<name>]           \
   [--load-test-name=NAME]      \  # overrides azure_infra.azure_load_test.name
   [--host / --partition / --app-id / --bearer-token / --directory]
 ```

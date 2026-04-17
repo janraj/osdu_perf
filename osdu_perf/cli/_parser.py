@@ -90,6 +90,14 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
         help="Scenario name (must exist in config/test_config.yaml).",
     )
     parser.add_argument(
+        "--profile",
+        help=(
+            "Profile name from test_config.yaml:profiles. Overrides the "
+            "scenario's own 'profile:' field. Falls back to the 'default' "
+            "profile, then to test_settings defaults."
+        ),
+    )
+    parser.add_argument(
         "--directory",
         default=".",
         help="Project directory (default: cwd).",

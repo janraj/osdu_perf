@@ -1,4 +1,17 @@
-# Defaults used unless overridden by a profile or scenario.
+# OSDU environment — fill in your OSDU instance details.
+osdu_environment:
+  host: "https://your-osdu-host.com"
+  partition: "your-partition-id"
+  app_id: "your-azure-app-id"
+
+# Free-form labels attached verbatim to every Kusto telemetry row.
+# The framework never interprets these keys — use whatever makes your
+# dashboards useful (version, build_id, region, etc.).
+test_metadata:
+  version: "25.2.35"
+
+# Defaults used when neither the selected profile nor the scenario
+# overrides a value.
 test_settings:
   users: 10
   spawn_rate: 2
@@ -10,9 +23,10 @@ test_settings:
   test_name_prefix: "${TEST_NAME_PREFIX}"
   test_run_id_description: "Test run for OSDU APIs"
 
-# Per-tier overrides. Selected by `test_metadata.performance_tier`.
-performance_tier_profiles:
-  standard:
+# Named settings bundles. Selected via `--profile <name>`, a scenario's
+# `profile:` field, or `default` as a fallback.
+profiles:
+  default:
     users: 10
     spawn_rate: 2
     run_time: "60s"
@@ -24,6 +38,7 @@ performance_tier_profiles:
 # Named scenarios. Pick one via `osdu_perf run local --scenario <name>`.
 scenarios:
   ${SCENARIO_NAME}:
+    profile: default           # optional; CLI --profile overrides this
     users: 10
     spawn_rate: 2
     run_time: "60s"

@@ -47,9 +47,9 @@ def load_from_paths(
     test = _read_yaml(test_config_path) if test_config_path else {}
 
     return AppConfig(
-        osdu_env=_parse_osdu_env(system),
+        osdu_env=_parse_osdu_env(test),
         azure_infra=_parse_azure_infra(system),
-        test_metadata=_parse_test_metadata(system),
+        test_metadata=_parse_test_metadata(test),
         defaults=_parse_defaults(test),
         profiles=_parse_profiles(test),
         scenarios=_parse_scenarios(test),
@@ -98,8 +98,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return content
 
 
-def _parse_osdu_env(system: dict[str, Any]) -> OsduEnv:
-    section = system.get("osdu_environment") or {}
+def _parse_osdu_env(test: dict[str, Any]) -> OsduEnv:
+    section = test.get("osdu_environment") or {}
     return OsduEnv(
         host=_clean_str(section.get("host")),
         partition=_clean_str(section.get("partition")),
@@ -133,11 +133,11 @@ def _parse_azure_infra(system: dict[str, Any]) -> AzureInfra:
     )
 
 
-def _parse_test_metadata(system: dict[str, Any]) -> TestMetadata:
-    section = dict(system.get("test_metadata") or {})
-    tier = str(section.pop("performance_tier", "standard") or "standard").lower()
-    version = _clean_str(section.pop("version", None))
-    return TestMetadata(performance_tier=tier, version=version, extras=section)
+def _parse_test_metadata(test: dict[str, Any]) -> TestMetadata:
+    section = test.get("test_metadata") or {}
+    if not isinstance(section, dict):
+        return TestMetadata()
+    return TestMetadata(data=dict(section))
 
 
 def _parse_defaults(test: dict[str, Any]) -> TestDefaults:
@@ -146,7 +146,7 @@ def _parse_defaults(test: dict[str, Any]) -> TestDefaults:
 
 
 def _parse_profiles(test: dict[str, Any]) -> dict[str, PerformanceProfile]:
-    section = test.get("performance_tier_profiles") or {}
+    section = test.get("profiles") or {}
     if not isinstance(section, dict):
         return {}
     profiles: dict[str, PerformanceProfile] = {}
@@ -176,9 +176,15 @@ def _parse_scenarios(test: dict[str, Any]) -> dict[str, Scenario]:
         if not isinstance(body, dict):
             continue
         metadata = dict(body.get("metadata") or {})
-        overrides = {k: v for k, v in body.items() if k != "metadata"}
+        profile = _clean_str(body.get("profile"))
+        overrides = {
+            k: v
+            for k, v in body.items()
+            if k not in {"metadata", "profile"}
+        }
         scenarios[str(name)] = Scenario(
             name=str(name),
+            profile=profile,
             metadata=metadata,
             overrides=overrides,
         )
