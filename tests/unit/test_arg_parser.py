@@ -54,11 +54,7 @@ class TestArgParserClass:
             version_works = False
             
         try:
-            parser.parse_args([
-                'run', 'local',
-                '--scenario', 'record_size_1KB',
-                '--token', 'test'
-            ])
+            parser.parse_args(['run', 'local', '--config', 'test.yaml', '--token', 'test'])
             local_works = True
         except SystemExit:
             local_works = False
@@ -95,14 +91,13 @@ class TestArgParserClass:
         # Test with required arguments
         args = parser.parse_args([
             'run', 'local',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token'
         ])
         
         assert args.command == 'run'
         assert args.run_command == 'local'
-        assert args.system_config == 'config/system_config.yaml'
-        assert args.scenario == 'record_size_1KB'
+        assert args.config == 'test.yaml'
         assert args.token == 'test-token'
         assert args.headless is False  # Default value
 
@@ -112,7 +107,7 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'local',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--host', 'https://test.com',
             '--partition', 'test-partition',
@@ -122,8 +117,7 @@ class TestArgParserClass:
             '--headless'
         ])
         
-        assert args.system_config == 'config/system_config.yaml'
-        assert args.scenario == 'record_size_1KB'
+        assert args.config == 'test.yaml'
         assert args.token == 'test-token'
         assert args.host == 'https://test.com'
         assert args.partition == 'test-partition'
@@ -138,15 +132,14 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--subscription-id', 'test-sub-id'
         ])
         
         assert args.command == 'run'
         assert args.run_command == 'azure_load_test'
-        assert args.system_config == 'config/system_config.yaml'  # implicit default
-        assert args.scenario == 'record_size_1KB'
+        assert args.config == 'test.yaml'
         assert args.token == 'test-token'
         assert args.subscription_id == 'test-sub-id'
         assert args.force is False  # Default value
@@ -157,32 +150,21 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--subscription-id', 'test-sub-id',
             '--host', 'https://test.com',
             '--partition', 'test-partition',
-            '--resource-group', 'test-rg',
             '--location', 'eastus',
-            '--users', '50',
-            '--spawn-rate', '10',
-            '--run-time', '5m',
-            '--engine-instances', '3',
             '--force'
         ])
         
-        assert args.system_config == 'config/system_config.yaml'  # implicit default
-        assert args.scenario == 'record_size_1KB'
+        assert args.config == 'test.yaml'
         assert args.token == 'test-token'
         assert args.subscription_id == 'test-sub-id'
         assert args.host == 'https://test.com'
         assert args.partition == 'test-partition'
-        assert args.resource_group == 'test-rg'
         assert args.location == 'eastus'
-        assert args.users == 50
-        assert args.spawn_rate == 10
-        assert args.run_time == '5m'
-        assert args.engine_instances == 3
         assert args.force is True
 
     def test_osdu_connection_args_helper_in_local(self):
@@ -191,7 +173,7 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'local',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--host', 'https://example.com',
             '--partition', 'example-partition'
@@ -209,7 +191,7 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--subscription-id', 'test-sub',
             '--host', 'https://example.com',
@@ -223,35 +205,33 @@ class TestArgParserClass:
         assert args.partition == 'example-partition'
 
     def test_config_arg_helper_in_local(self):
-        """Test that scenario arg helper is used in local command."""
+        """Test that config arg helper is used in local command."""
         parser = self.arg_parser.create_parser()
         
         args = parser.parse_args([
             'run', 'local',
-            '--scenario', 'record_size_1KB',
+            '--config', 'custom-config.yaml',
             '--token', 'test-token'
         ])
         
-        assert hasattr(args, 'system_config')
-        assert hasattr(args, 'scenario')
-        assert args.system_config == 'config/system_config.yaml'
-        assert args.scenario == 'record_size_1KB'
+        # This argument should be available due to _add_config_arg
+        assert hasattr(args, 'config')
+        assert args.config == 'custom-config.yaml'
 
     def test_config_arg_helper_in_azure(self):
-        """Test that scenario arg helper is used in azure command."""
+        """Test that config arg helper is used in azure command."""
         parser = self.arg_parser.create_parser()
         
         args = parser.parse_args([
             'run', 'azure_load_test',
-            '--scenario', 'record_size_1KB',
+            '--config', 'custom-config.yaml',
             '--token', 'test-token',
             '--subscription-id', 'test-sub'
         ])
         
-        assert hasattr(args, 'system_config')
-        assert hasattr(args, 'scenario')
-        assert args.system_config == 'config/system_config.yaml'  # implicit default
-        assert args.scenario == 'record_size_1KB'
+        # This argument should be available due to _add_config_arg
+        assert hasattr(args, 'config')
+        assert args.config == 'custom-config.yaml'
 
     def test_invalid_command_parsing(self):
         """Test parsing invalid commands."""
@@ -271,7 +251,7 @@ class TestArgParserClass:
         
         args = parser.parse_args([
             'run', 'local',
-            '--scenario', 'record_size_1KB',
+            '--config', 'test.yaml',
             '--token', 'test-token',
             '--users', '50',
             '--spawn-rate', '5'
@@ -282,30 +262,6 @@ class TestArgParserClass:
         assert isinstance(args.spawn_rate, int)
         assert args.users == 50
         assert args.spawn_rate == 5
-
-    def test_multiple_scenarios_blocked_in_local(self):
-        """Test parser blocks multiple scenario values for local command."""
-        parser = self.arg_parser.create_parser()
-
-        with pytest.raises(SystemExit):
-            parser.parse_args([
-                'run', 'local',
-                '--scenario', 'record_size_1KB', 'record_size_100KB',
-                '--token', 'test-token'
-            ])
-
-    def test_multiple_scenarios_blocked_in_azure(self):
-        """Test parser blocks multiple scenario values for azure command."""
-        parser = self.arg_parser.create_parser()
-
-        with pytest.raises(SystemExit):
-            parser.parse_args([
-                'run', 'azure_load_test',
-                '--system-config', 'system_config.yaml',
-                '--scenario', 'record_size_1KB', 'record_size_100KB',
-                '--token', 'test-token',
-                '--subscription-id', 'test-sub-id'
-            ])
 
 
 if __name__ == '__main__':

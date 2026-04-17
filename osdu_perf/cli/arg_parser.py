@@ -136,11 +136,9 @@ Examples:
 
         # Azure Configuration
         azure_parser.add_argument("--subscription-id", help="Azure subscription ID (overrides config.yaml)")
-        azure_parser.add_argument("--resource-group", help="Azure resource group name (overrides config.yaml)")
         azure_parser.add_argument("--location", help="Azure region (e.g., eastus, westus2) (overrides config.yaml)")
 
         # Azure Load Test Config
-        azure_parser.add_argument("--loadtest-name", default="osdu-perf-dev", help="Azure Load Testing resource name (default: osdu-perf-dev)")
         azure_parser.add_argument("--test-name", help="Test name (auto-generated if not provided)")
 
         # Advanced Options

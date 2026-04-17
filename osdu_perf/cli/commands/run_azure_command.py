@@ -1,3 +1,4 @@
+import re
 import sys
 import time
 from ..command_base import Command
@@ -28,7 +29,7 @@ class AzureLoadTestCommand(Command):
             self._validate_azure_parameters(config)
             self._log_configuration_details(config)
 
-            runner = self._create_azure_test_runner(config, args)
+            runner = self._create_azure_test_runner(config)
 
             # Create the load test resource
             load_test = runner.create_load_test_resource()
@@ -54,7 +55,7 @@ class AzureLoadTestCommand(Command):
             )
             
             if setup_success:
-                self._setup_azure_entitlements(runner, config, args.loadtest_name)
+                self._setup_azure_entitlements(runner, config, config['loadtest_name'])
                 self._execute_load_test(runner, config)
                 return 0
             else:
@@ -85,8 +86,9 @@ class AzureLoadTestCommand(Command):
 
         # Get Azure Load Test configuration from config with CLI overrides
         subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
-        resource_group = args.resource_group or input_handler.get_azure_resource_group()
         location = args.location or input_handler.get_azure_location()
+        resource_group = "adme-performance-rg"
+        loadtest_name = self._generate_load_test_name(location)
         
         execution_settings = input_handler.resolve_test_execution_settings(
             scenario=getattr(args, 'scenario', None),
@@ -102,8 +104,8 @@ class AzureLoadTestCommand(Command):
         else:
             test_name = input_handler.generate_test_name(sku=sku, version=version)
 
-        # Keep Azure test run metadata prefix behavior while using shared ID generator.
-        test_run_id = input_handler.generate_test_run_id(prefix=input_handler.get_test_run_id_prefix())
+        # Use the same naming base as local flow so test_name_prefix is enforced consistently.
+        test_run_id = input_handler.generate_test_run_id(prefix=test_name)
 
         tags = execution_settings['tags']
         test_description = input_handler.get_test_run_id_description()
@@ -118,6 +120,7 @@ class AzureLoadTestCommand(Command):
             'version': version,
             'subscription_id': subscription_id,
             'resource_group': resource_group,
+            'loadtest_name': loadtest_name,
             'location': location,
             'users': execution_settings['users'],
             'spawn_rate': execution_settings['spawn_rate'],
@@ -166,18 +169,19 @@ class AzureLoadTestCommand(Command):
         self.logger.info(f"🏗️  Azure Subscription: {config['subscription_id']}")
         self.logger.info(f"🏗️  Resource Group: {config['resource_group']}")
         self.logger.info(f"🏗️  Location: {config['location']}")
+        self.logger.info(f"🏗️  Load Test Name: {config['loadtest_name']}")
         self.logger.info(f"🧪 Test Name: {config['test_name']}")
         self.logger.info(f"     Test Scenario tags: {config['tags']}")
 
 
-    def _create_azure_test_runner(self, config, args):
+    def _create_azure_test_runner(self, config):
         """Create and configure AzureLoadTestRunner instance."""
         from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner
         
         return AzureLoadTestRunner(
             subscription_id=config['subscription_id'],
             resource_group_name=config['resource_group'],
-            load_test_name=args.loadtest_name,
+            load_test_name=config['loadtest_name'],
             location=config['location'],
             tags={
                 "Environment": "Performance Testing", 
@@ -190,6 +194,13 @@ class AzureLoadTestCommand(Command):
             version=config['version'],
             test_runid_name=config['execution_display_name']
         )
+
+    def _generate_load_test_name(self, location: str) -> str:
+        """Generate deterministic Azure Load Test resource name from location."""
+        normalized_location = re.sub(r'[^a-z0-9-]+', '-', (location or 'eastus').lower()).strip('-')
+        if not normalized_location:
+            normalized_location = 'eastus'
+        return f"adme-perf-{normalized_location}"
 
 
 
