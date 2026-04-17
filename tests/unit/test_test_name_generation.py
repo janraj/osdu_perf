@@ -13,12 +13,12 @@ def test_input_handler_generate_test_name_normalizes_values():
 
     generated, test_run_id = InputHandler.generate_test_name_and_run_id(
         handler,
-        sku="Premium",
+        performance_tier="Premium",
         version="1.2",
     )
 
     assert generated == "my_prefix_premium_1_2"
-    assert test_run_id.startswith("My.Prefix_")
+    assert test_run_id.startswith("My.Prefix_Premium_1_2_")
 
 
 def test_local_runner_uses_shared_test_name_generation_for_run_id():
@@ -30,6 +30,8 @@ def test_local_runner_uses_shared_test_name_generation_for_run_id():
     input_handler.get_users.return_value = 10
     input_handler.get_spawn_rate.return_value = 2
     input_handler.get_run_time.return_value = "60s"
+    input_handler.get_osdu_performance_tier.return_value = "standard"
+    input_handler.get_osdu_version.return_value = "1.0"
     input_handler.get_test_scenario.return_value = "scenario_1"
     input_handler.generate_test_name_and_run_id.return_value = (
         "team_prefix",
@@ -56,13 +58,16 @@ def test_local_runner_uses_shared_test_name_generation_for_run_id():
         users=None,
         spawn_rate=None,
         run_time=None,
-        sku=None,
+        performance_tier=None,
         version=None,
     )
 
     config = runner._load_test_configuration(args)
 
-    input_handler.generate_test_name_and_run_id.assert_called_once_with(sku="", version="")
+    input_handler.generate_test_name_and_run_id.assert_called_once_with(
+        performance_tier="standard",
+        version="1.0",
+    )
     assert config.test_run_id == "team_prefix_20260417_120000"
 
 
@@ -74,7 +79,7 @@ def test_azure_command_uses_shared_test_name_generation(mock_input_handler_class
     input_handler.get_osdu_host.return_value = "https://example"
     input_handler.get_osdu_partition.return_value = "opendes"
     input_handler.get_osdu_app_id.return_value = "app-id"
-    input_handler.get_osdu_sku.return_value = "standard"
+    input_handler.get_osdu_performance_tier.return_value = "standard"
     input_handler.get_osdu_version.return_value = "1.0"
     input_handler.get_azure_subscription_id.return_value = "sub-id"
     input_handler.get_azure_resource_group.return_value = "rg"
@@ -107,7 +112,7 @@ def test_azure_command_uses_shared_test_name_generation(mock_input_handler_class
         partition=None,
         token="token",
         app_id=None,
-        sku=None,
+        performance_tier=None,
         version=None,
         subscription_id=None,
         resource_group=None,
@@ -122,7 +127,7 @@ def test_azure_command_uses_shared_test_name_generation(mock_input_handler_class
     config = command._load_azure_configuration(args)
 
     input_handler.generate_test_name_and_run_id.assert_called_once_with(
-        sku="standard",
+        performance_tier="standard",
         version="1.0",
     )
     assert config["test_name"] == "team_prefix_standard_1_0"

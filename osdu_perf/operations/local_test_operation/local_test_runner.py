@@ -247,9 +247,15 @@ class LocalTestRunner:
         run_time = input_handler.get_run_time(getattr(args, 'run_time', None))
         tags = input_handler.get_test_scenario(requested_scenarios)
         
-        # Generate test run ID using common function (using empty sku/version for local)
-        # For local tests, only test_run_id is needed; test_name is not used
-        _test_name, test_run_id = input_handler.generate_test_name_and_run_id(sku='', version='')
+        performance_tier = getattr(args, 'performance_tier', None) or input_handler.get_osdu_performance_tier()
+        version = getattr(args, 'version', None) or input_handler.get_osdu_version()
+
+        # Generate test run ID using common function.
+        # For local tests, only test_run_id is needed; test_name is not used.
+        _test_name, test_run_id = input_handler.generate_test_name_and_run_id(
+            performance_tier=performance_tier or '',
+            version=version or '',
+        )
         
         self.logger.info(f"Generated Test Run ID: {test_run_id} and tags {tags}")
 

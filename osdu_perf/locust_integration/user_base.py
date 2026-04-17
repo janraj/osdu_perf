@@ -184,7 +184,9 @@ class PerformanceUser():
             
             adme = PerformanceUser.get_ADME_name(environment.host)
             partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-            sku = input_handler.get_osdu_sku(os.getenv("SKU", None))
+            performance_tier = input_handler.get_osdu_performance_tier(
+                os.getenv("PERFORMANCE_TIER", os.getenv("SKU", None))
+            )
             version = input_handler.get_osdu_version(os.getenv("VERSION", None))
             
             # Calculate test duration and max RPS
@@ -217,7 +219,7 @@ class PerformanceUser():
                 stats_results.append({
                     "ADME": adme,
                     "Partition": partition,
-                    "SKU": sku,
+                    "SKU": performance_tier,
                     "Version": version,
                     "Service": service,
                     "TestEnv": test_run_environment,
@@ -261,7 +263,7 @@ class PerformanceUser():
                 exceptions_results.append({
                     "TestRunId": test_run_id,
                     "ADME": adme,
-                    "SKU": sku,
+                    "SKU": performance_tier,
                     "Version": version,
                     "Partition": partition,
                     "Method": method,
@@ -283,7 +285,7 @@ class PerformanceUser():
                 "TestRunId": test_run_id,
                 "ADME": adme,
                 "Partition": partition,
-                "SKU": sku,
+                "SKU": performance_tier,
                 "Version": version,
                 "TestEnv": test_run_environment,
                 "TotalRequests": int(stats.total.num_requests),

@@ -77,7 +77,7 @@ class AzureLoadTestCommand(Command):
         partition = args.partition or input_handler.get_osdu_partition()
         osdu_adme_token = args.token  # Token is for running locally and enabling entitlement 
         app_id = args.app_id or input_handler.get_osdu_app_id()
-        sku = getattr(args, 'sku', None) or input_handler.get_osdu_sku()
+        performance_tier = getattr(args, 'performance_tier', None) or input_handler.get_osdu_performance_tier()
         version = getattr(args, 'version', None) or input_handler.get_osdu_version()
         
         if osdu_adme_token is None:
@@ -87,6 +87,8 @@ class AzureLoadTestCommand(Command):
         subscription_id = args.subscription_id or input_handler.get_azure_subscription_id()
         resource_group = args.resource_group or input_handler.get_azure_resource_group()
         location = args.location or input_handler.get_azure_location()
+        
+        load_test_name = input_handler.get_azure_load_test_name(location)
         
         # Scenario selection must match test config and be exactly one value.
         valid_scenario = input_handler.validate_scenario(getattr(args, 'scenario', None))
@@ -99,7 +101,10 @@ class AzureLoadTestCommand(Command):
         engine_instances = input_handler.get_engine_instances(getattr(args, 'engine_instances', None))
         
         # Generate test name and test run ID using common function
-        test_name, test_run_id = input_handler.generate_test_name_and_run_id(sku=sku, version=version)
+        test_name, test_run_id = input_handler.generate_test_name_and_run_id(
+            performance_tier=performance_tier,
+            version=version,
+        )
         
         # Generate execution display name for Azure Load Test run
         tags = input_handler.get_test_scenario(getattr(args, 'scenario', None))
@@ -111,11 +116,12 @@ class AzureLoadTestCommand(Command):
             'partition': partition,
             'osdu_adme_token': osdu_adme_token,
             'app_id': app_id,
-            'sku': sku,
+            'performance_tier': performance_tier,
             'version': version,
             'subscription_id': subscription_id,
             'resource_group': resource_group,
             'location': location,
+            'load_test_name': load_test_name,
             'users': users,
             'spawn_rate': spawn_rate,
             'run_time': run_time,
@@ -157,7 +163,7 @@ class AzureLoadTestCommand(Command):
         self.logger.info(f"📂 Partition: {config['partition']}")
         if config['app_id']:
             self.logger.info(f"🆔 App ID: {config['app_id']}")
-        self.logger.info(f"📦 SKU: {config['sku']}")
+        self.logger.info(f"📦 Performance Tier: {config['performance_tier']}")
         self.logger.info(f"🔢 Version: {config['version']}")
         self.logger.info(f"🆔 Test Run ID: {config['test_run_id']}")
         self.logger.info(f"🏗️  Azure Subscription: {config['subscription_id']}")
@@ -170,17 +176,11 @@ class AzureLoadTestCommand(Command):
     def _create_azure_test_runner(self, config, args):
         """Create and configure AzureLoadTestRunner instance."""
         from osdu_perf.operations.azure_test_operation import AzureLoadTestRunner
-        from osdu_perf.operations.input_handler import InputHandler
-        
-        # Derive Azure Load Test name from location (format: adme-perf-<location>)
-        input_handler = InputHandler(None)
-        input_handler.load_from_split_config_files(args.system_config)
-        load_test_name = input_handler.get_azure_load_test_name(config['location'])
         
         return AzureLoadTestRunner(
             subscription_id=config['subscription_id'],
             resource_group_name=config['resource_group'],
-            load_test_name=load_test_name,
+            load_test_name=config['load_test_name'],
             location=config['location'],
             tags={
                 "Environment": "Performance Testing", 
@@ -189,7 +189,7 @@ class AzureLoadTestCommand(Command):
                 "TestName": config['test_name'],
                 "TestRunId": config['test_run_id']
             },
-            sku=config['sku'],
+            sku=config['performance_tier'],
             version=config['version'],
             test_runid_name=config['execution_display_name']
         )
