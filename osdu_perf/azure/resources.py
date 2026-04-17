@@ -63,7 +63,7 @@ class AzureResourceProvisioner:
                     f"Resource group '{self._resource_group}' does not exist in "
                     f"subscription '{self._subscription_id}'. Either create it "
                     f"manually or set 'azure_load_test.allow_resource_creation: true' "
-                    f"in system_config.yaml."
+                    f"in azure_config.yaml."
                 ) from exc
 
         _LOGGER.info("Creating resource group '%s'", self._resource_group)
@@ -96,7 +96,7 @@ class AzureResourceProvisioner:
                     f"exist in resource group '{self._resource_group}'. Either "
                     f"create it manually, check --load-test-name, or set "
                     f"'azure_load_test.allow_resource_creation: true' in "
-                    f"system_config.yaml."
+                    f"azure_config.yaml."
                 ) from exc
 
         _LOGGER.info("Creating load test resource '%s'", self._load_test_name)

@@ -19,7 +19,7 @@ def test_scaffolder_writes_expected_layout(tmp_path: Path) -> None:
         "perf_storage_crud_test.py",
         "README.md",
         "requirements.txt",
-        "config/system_config.yaml",
+        "config/azure_config.yaml",
         "config/test_config.yaml",
     ]:
         assert (tmp_path / expected).is_file(), f"missing {expected}"

@@ -2,8 +2,9 @@
 
 Users edit two YAML files in ``config/``:
 
-* ``system_config.yaml`` — environment, Azure infrastructure, Kusto telemetry
-* ``test_config.yaml`` — scenarios and performance-tier profiles
+* ``azure_config.yaml`` — Azure Load Test target + optional Kusto export sink
+* ``test_config.yaml`` — OSDU environment, labels, profiles, scenario
+  defaults, and the default ``run_scenario`` invocation
 
 This package turns both into a single typed :class:`AppConfig` tree, which
 is what every other subsystem consumes.
@@ -16,9 +17,9 @@ from ._models import (
     KustoConfig,
     OsduEnv,
     PerformanceProfile,
-    Scenario,
-    TestDefaults,
-    TestMetadata,
+    ResolvedRun,
+    RunScenario,
+    ScenarioDefault,
     WaitTime,
 )
 
@@ -28,9 +29,9 @@ __all__ = [
     "KustoConfig",
     "OsduEnv",
     "PerformanceProfile",
-    "Scenario",
-    "TestDefaults",
-    "TestMetadata",
+    "ResolvedRun",
+    "RunScenario",
+    "ScenarioDefault",
     "WaitTime",
     "load_config",
     "load_from_paths",

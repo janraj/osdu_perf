@@ -47,10 +47,10 @@ Files created:
 ```
 my-osdu-perf/
 ├── config/
-│   ├── system_config.yaml      # OSDU + Azure settings
-│   └── test_config.yaml        # scenarios, users, spawn rate, ...
-├── locustfile.py               # Locust entry point
-├── perf_search_query_test.py   # your service test
+│   ├── azure_config.yaml        # Azure Load Test target + Kusto export (both optional)
+│   └── test_config.yaml         # OSDU env, labels, profiles, scenario defaults
+├── locustfile.py                # Locust entry point
+├── perf_search_query_test.py    # your service test
 ├── requirements.txt
 └── README.md
 ```
@@ -87,7 +87,9 @@ Configuration loaded successfully.
   host:      https://your-osdu-host.com
   partition: opendes
   app_id:    <azure-ad-app-id>
-  scenarios: search_query
+  profiles:  u100_t15m, u200_t30m, u50_t15m
+  scenario defaults: search_query
+  run_scenario: search_query (profile=-)
 ```
 
 ### 6. Run locally
@@ -104,7 +106,7 @@ osdu_perf run local --scenario search_query --headless
 
 ### 7. (Optional) Run on Azure Load Testing
 
-Add an `azure_load_test` block to `config/system_config.yaml`:
+Add an `azure_load_test` block to `config/azure_config.yaml`:
 
 ```yaml
 azure_load_test:
@@ -207,16 +209,16 @@ automatically.
 Two YAML files under `config/` drive everything. The loader walks up
 from the current working directory looking for them.
 
-### `config/system_config.yaml` — platform only
+### `config/azure_config.yaml` — platform only
 
-This file describes **where** tests run and **where** telemetry goes.
-Both sections are optional and independent:
+Describes **where** tests run and **where** telemetry goes. Both
+sections are optional and independent.
 
 * `azure_load_test` — target for `osdu_perf run azure`. Not used by
   `run local`.
-* `kusto_export` — optional telemetry sink. Used by **both** `run local`
-  and `run azure`; when configured, every completed run ingests a
-  summary row into the database.
+* `kusto_export` — optional telemetry sink. Used by **both**
+  `run local` and `run azure`; when configured, every completed run
+  ingests a summary row into the database.
 
 ```yaml
 # Required only for `osdu_perf run azure`.
@@ -244,54 +246,51 @@ osdu_environment:
   app_id: "<azure-ad-app-id>"
 
 # Free-form labels copied verbatim to every Kusto telemetry row.
-# The framework does not interpret any key here — use whatever makes
-# your dashboards useful.
-test_metadata:
+# The framework does not interpret any key here.
+labels:
   version: "25.2.35"
   build_id: "ci-4321"
 
-# Defaults used when neither the selected profile nor the scenario
-# overrides a value.
-test_settings:
-  users: 10
-  spawn_rate: 2
-  run_time: "60s"
-  engine_instances: 1
-  default_wait_time: { min: 1, max: 3 }
-  test_name_prefix: "osdu_perf_test"
-
-# Named settings bundles. Selected via `--profile <name>`, a scenario's
-# `profile:` field, or the `default` profile as a fallback.
+# Named load shapes. Naming convention: U<users>_T<duration>.
 profiles:
-  default: { users: 10, spawn_rate: 2, run_time: "60s" }
-  flex:    { users: 50, spawn_rate: 5, run_time: "5m"  }
+  U50_T15M:  { users: 50,  spawn_rate: 5,  run_time: "15m" }
+  U100_T15M: { users: 100, spawn_rate: 10, run_time: "15m" }
+  U200_T30M: { users: 200, spawn_rate: 20, run_time: "30m", engine_instances: 2 }
 
-# Named scenarios — pick one with `--scenario <name>`.
-scenarios:
+# Per-scenario defaults. Scenarios themselves are the Python files
+# under perf_tests/ — this block is NOT a registry, just defaults.
+scenario_defaults:
   search_query:
-    profile: default        # optional; --profile CLI flag overrides this
-    users: 20               # scenario-level overrides win over the profile
-    spawn_rate: 5
-    run_time: "2m"
+    profile: U100_T15M
     metadata:
       scenario_kind: "query"
+  storage_crud:
+    profile: U50_T15M
+
+# Default invocation when `osdu_perf run` is called WITHOUT --scenario.
+# All keys inside apply only when this block supplies the scenario.
+run_scenario:
+  scenario: search_query
+  profile: U200_T30M        # optional; overrides scenario_defaults.<scenario>.profile
+  labels:                    # optional; merged on top of top-level labels
+    triggered_by: "nightly-ci"
 ```
 
-### Profile resolution
+### Resolution
 
-When you run a scenario, its effective settings are computed by merging:
+For a single run, `osdu_perf` picks three things:
 
-```
-test_settings (defaults)
-  ↓
-profile (if any):
-    --profile CLI flag  >  scenario.profile  >  profiles.default  >  (no profile)
-  ↓
-scenario overrides (users/spawn_rate/run_time/…)
-```
+* **Scenario**: `--scenario` CLI flag → `run_scenario.scenario` → error.
+* **Profile**: `--profile` CLI flag → (if scenario came from
+  `run_scenario`) `run_scenario.profile` →
+  `scenario_defaults[scenario].profile` → error listing available
+  profiles.
+* **Telemetry labels** (merged, last wins): top-level `labels` ←
+  `scenario_defaults[scenario].metadata` ← (if scenario came from
+  `run_scenario`) `run_scenario.labels`.
 
-`test_metadata` is pure passthrough — it never affects what gets run,
-only what gets logged to Kusto.
+`labels` is pure passthrough — it never affects what gets run, only
+what gets logged to Kusto.
 
 ---
 
@@ -339,7 +338,7 @@ Spawn Locust as a subprocess.
 
 ```bash
 osdu_perf run local \
-  --scenario=<name>        \
+  [--scenario=<name>]      \
   [--profile=<name>]       \
   [--host=URL]             \
   [--partition=ID]         \
@@ -349,10 +348,10 @@ osdu_perf run local \
   [--headless]
 ```
 
-* `--scenario` **required** — must match a key under `scenarios:` in
-  `test_config.yaml`.
-* `--profile` — override the scenario's `profile:` field. Falls back to
-  the `default` profile, then to `test_settings` defaults.
+* `--scenario` *(optional)* — when omitted, falls back to
+  `run_scenario.scenario` in `test_config.yaml`.
+* `--profile` *(optional)* — overrides any default coming from
+  `scenario_defaults.<scenario>.profile` or `run_scenario.profile`.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.
@@ -364,7 +363,7 @@ ALT managed identity, start the run.
 
 ```bash
 osdu_perf run azure \
-  --scenario=<name>            \
+  [--scenario=<name>]          \
   [--profile=<name>]           \
   [--load-test-name=NAME]      \  # overrides azure_load_test.name
   [--host / --partition / --app-id / --bearer-token / --directory]
@@ -426,10 +425,10 @@ print(settings.users, settings.run_time)
 
 | Symptom                                                              | Fix                                                                                                 |
 | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `error: ScenarioNotFoundError: Scenario 'X' not found ...`           | Add `X:` under `scenarios:` in `config/test_config.yaml`, or use one that's listed.                 |
+| `error: ScenarioNotFoundError: No scenario specified ...`           | Pass `--scenario <name>`, or set `run_scenario.scenario:` in `config/test_config.yaml`.             |
 | `error: AuthError: Unable to acquire token. Ensure Azure CLI ...`    | Run `az login`. Or set `ADME_BEARER_TOKEN` / pass `--bearer-token`.                                 |
 | `error: AzureResourceError: Azure Load Test resource '...' missing` | Create the ALT resource, fix `azure_load_test.name`, or set `allow_resource_creation: true`. |
-| `error: ConfigError: host, partition, and app_id must all be provided.` | Fill in `osdu_environment` in `system_config.yaml`, or pass `--host/--partition/--app-id`.      |
+| `error: ConfigError: host, partition, and app_id must all be provided.` | Fill in `osdu_environment` in `test_config.yaml`, or pass `--host/--partition/--app-id`.        |
 | `Locust is not installed`                                            | `pip install locust` (it's a transitive dependency, should already be present).                     |
 | Tokens rejected with `aud mismatch`                                  | Do **not** pass `--scope api://<id>/.default` yourself — the framework uses `--resource <app_id>`.  |
 
@@ -489,7 +488,7 @@ extending an osdu_perf project.
    1. `mkdir <project>` and `cd` into it.
    2. Run `osdu_perf samples` to see available templates.
    3. Run `osdu_perf init --sample=<closest-match>`.
-   4. Edit `config/system_config.yaml` — fill in `host`, `partition`,
+   4. Edit `config/test_config.yaml` — fill in `host`, `partition`,
       `app_id`.
    5. Run `osdu_perf validate`; resolve any `ConfigError`.
    6. Run `osdu_perf run local --scenario <sample> --headless` for a
@@ -501,11 +500,13 @@ extending an osdu_perf project.
       (`provide_explicit_token`, `prehook`, `execute`, `posthook`).
    3. In `execute`, call `self.client.get/post/put/delete(...)` with a
       stable `name=` kwarg for Locust stats grouping.
-   4. Add a scenario entry in `config/test_config.yaml:scenarios:`.
+   4. Drop the new `perf_<name>_test.py` into the project root. Add an
+      entry under `scenario_defaults.<name>.profile` in
+      `config/test_config.yaml` so it picks up a load shape by default.
    5. Run `osdu_perf validate` then `osdu_perf run local --scenario <name>`.
 
 3. **User asks to run on Azure Load Testing**
-   1. Ensure an `azure_load_test` block exists in `system_config.yaml`
+   1. Ensure an `azure_load_test` block exists in `azure_config.yaml`
       with valid `subscription_id`, `resource_group`, and `name`.
    2. The resource group **and** ALT resource must exist — or set
       `allow_resource_creation: true` (and have `Contributor` at
@@ -566,7 +567,7 @@ pip install osdu_perf
 ```bash
 # 1. scaffold a test project
 osdu_perf init --sample=search_query
-cd .                               # edit config/system_config.yaml
+cd .                               # edit config/test_config.yaml
 
 # 2. validate your configuration
 osdu_perf validate

@@ -1,4 +1,4 @@
-# OSDU environment — fill in your OSDU instance details.
+# OSDU environment — WHERE the test hits (target OSDU instance).
 osdu_environment:
   host: "https://your-osdu-host.com"
   partition: "your-partition-id"
@@ -6,41 +6,44 @@ osdu_environment:
 
 # Free-form labels attached verbatim to every Kusto telemetry row.
 # The framework never interprets these keys — use whatever makes your
-# dashboards useful (version, build_id, region, etc.).
-test_metadata:
+# dashboards useful (version, build_id, region, commit sha, ...).
+labels:
   version: "25.2.35"
 
-# Defaults used when neither the selected profile nor the scenario
-# overrides a value.
-test_settings:
-  users: 10
-  spawn_rate: 2
-  run_time: "60s"
-  engine_instances: 1
-  default_wait_time:
-    min: 1
-    max: 3
-  test_name_prefix: "${TEST_NAME_PREFIX}"
-  test_run_id_description: "Test run for OSDU APIs"
-
-# Named settings bundles. Selected via `--profile <name>`, a scenario's
-# `profile:` field, or `default` as a fallback.
+# Named load shapes. Pick one via --profile, via scenario_defaults, or
+# via run_scenario. Naming convention: U<users>_T<duration>.
 profiles:
-  default:
-    users: 10
-    spawn_rate: 2
-    run_time: "60s"
-  flex:
+  U50_T15M:
     users: 50
     spawn_rate: 5
-    run_time: "5m"
+    run_time: "15m"
+    engine_instances: 1
+  U100_T15M:
+    users: 100
+    spawn_rate: 10
+    run_time: "15m"
+    engine_instances: 1
+  U200_T30M:
+    users: 200
+    spawn_rate: 20
+    run_time: "30m"
+    engine_instances: 2
 
-# Named scenarios. Pick one via `osdu_perf run local --scenario <name>`.
-scenarios:
+# Per-scenario defaults. Each entry says: "when someone runs scenario X
+# without --profile, use this profile + extra telemetry labels."
+# Scenarios themselves are Python files under perf_tests/ — they are
+# discovered automatically; this block is NOT a registry.
+scenario_defaults:
   ${SCENARIO_NAME}:
-    profile: default           # optional; CLI --profile overrides this
-    users: 10
-    spawn_rate: 2
-    run_time: "60s"
+    profile: U50_T15M
     metadata:
       scenario_kind: "${SCENARIO_NAME}"
+
+# Default invocation when `osdu_perf run local|azure` is called WITHOUT
+# --scenario. Everything in this block only applies when this block
+# supplies the scenario; an explicit --scenario bypasses it entirely.
+run_scenario:
+  scenario: ${SCENARIO_NAME}
+  # profile: U100_T15M           # optional override of scenario_defaults.<scenario>.profile
+  # labels:                       # optional extra labels merged on top
+  #   triggered_by: "nightly-ci"

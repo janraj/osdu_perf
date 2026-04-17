@@ -1,13 +1,12 @@
 """Config file discovery + parsing.
 
-The loader looks for ``config/system_config.yaml`` and
+The loader looks for ``config/azure_config.yaml`` and
 ``config/test_config.yaml`` starting at ``cwd`` and walking up the
 directory tree. Explicit paths may also be supplied.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -20,61 +19,63 @@ from ._models import (
     KustoConfig,
     OsduEnv,
     PerformanceProfile,
-    Scenario,
-    TestDefaults,
-    TestMetadata,
+    RunScenario,
+    ScenarioDefault,
     WaitTime,
 )
 
-_SYSTEM_FILENAME = "system_config.yaml"
+_AZURE_FILENAME = "azure_config.yaml"
 _TEST_FILENAME = "test_config.yaml"
 
 
 def load_config(search_root: Path | None = None) -> AppConfig:
     """Discover and load config files starting from ``search_root`` (or cwd)."""
     root = Path(search_root or Path.cwd())
-    system_path, test_path = _discover(root)
-    return load_from_paths(system_path, test_path)
+    azure_path, test_path = _discover(root)
+    return load_from_paths(azure_path, test_path)
 
 
 def load_from_paths(
-    system_config_path: Path | None,
+    azure_config_path: Path | None,
     test_config_path: Path | None,
 ) -> AppConfig:
     """Load configuration from explicit file paths (either may be ``None``)."""
-    system = _read_yaml(system_config_path) if system_config_path else {}
+    azure = _read_yaml(azure_config_path) if azure_config_path else {}
     test = _read_yaml(test_config_path) if test_config_path else {}
 
     return AppConfig(
         osdu_env=_parse_osdu_env(test),
-        azure_load_test=_parse_azure_load_test(system),
-        kusto_export=_parse_kusto_export(system),
-        test_metadata=_parse_test_metadata(test),
-        defaults=_parse_defaults(test),
+        azure_load_test=_parse_azure_load_test(azure),
+        kusto_export=_parse_kusto_export(azure),
+        labels=_parse_labels(test),
         profiles=_parse_profiles(test),
-        scenarios=_parse_scenarios(test),
-        system_config_path=str(system_config_path) if system_config_path else None,
+        scenario_defaults=_parse_scenario_defaults(test),
+        run_scenario=_parse_run_scenario(test),
+        azure_config_path=str(azure_config_path) if azure_config_path else None,
         test_config_path=str(test_config_path) if test_config_path else None,
     )
 
 
+# ----------------------------------------------------------------------
+# Discovery
+# ----------------------------------------------------------------------
 def _discover(start: Path) -> tuple[Path | None, Path | None]:
-    system_path: Path | None = None
+    azure_path: Path | None = None
     test_path: Path | None = None
     for directory in (start, *start.parents):
-        if system_path is None:
-            system_path = _first_existing(
-                directory / "config" / _SYSTEM_FILENAME,
-                directory / _SYSTEM_FILENAME,
+        if azure_path is None:
+            azure_path = _first_existing(
+                directory / "config" / _AZURE_FILENAME,
+                directory / _AZURE_FILENAME,
             )
         if test_path is None:
             test_path = _first_existing(
                 directory / "config" / _TEST_FILENAME,
                 directory / _TEST_FILENAME,
             )
-        if system_path and test_path:
+        if azure_path and test_path:
             break
-    return system_path, test_path
+    return azure_path, test_path
 
 
 def _first_existing(*paths: Path) -> Path | None:
@@ -98,17 +99,11 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return content
 
 
-def _parse_osdu_env(test: dict[str, Any]) -> OsduEnv:
-    section = test.get("osdu_environment") or {}
-    return OsduEnv(
-        host=_clean_str(section.get("host")),
-        partition=_clean_str(section.get("partition")),
-        app_id=_clean_str(section.get("app_id")),
-    )
-
-
-def _parse_azure_load_test(system: dict[str, Any]) -> AzureLoadTest:
-    section = system.get("azure_load_test") or {}
+# ----------------------------------------------------------------------
+# azure_config.yaml parsing
+# ----------------------------------------------------------------------
+def _parse_azure_load_test(azure: dict[str, Any]) -> AzureLoadTest:
+    section = azure.get("azure_load_test") or {}
     if not isinstance(section, dict):
         return AzureLoadTest()
     return AzureLoadTest(
@@ -120,8 +115,8 @@ def _parse_azure_load_test(system: dict[str, Any]) -> AzureLoadTest:
     )
 
 
-def _parse_kusto_export(system: dict[str, Any]) -> KustoConfig:
-    section = system.get("kusto_export") or {}
+def _parse_kusto_export(azure: dict[str, Any]) -> KustoConfig:
+    section = azure.get("kusto_export") or {}
     if not isinstance(section, dict):
         return KustoConfig()
     cluster_uri = _clean_str(section.get("cluster_uri"))
@@ -137,16 +132,23 @@ def _parse_kusto_export(system: dict[str, Any]) -> KustoConfig:
     )
 
 
-def _parse_test_metadata(test: dict[str, Any]) -> TestMetadata:
-    section = test.get("test_metadata") or {}
+# ----------------------------------------------------------------------
+# test_config.yaml parsing
+# ----------------------------------------------------------------------
+def _parse_osdu_env(test: dict[str, Any]) -> OsduEnv:
+    section = test.get("osdu_environment") or {}
+    return OsduEnv(
+        host=_clean_str(section.get("host")),
+        partition=_clean_str(section.get("partition")),
+        app_id=_clean_str(section.get("app_id")),
+    )
+
+
+def _parse_labels(test: dict[str, Any]) -> dict[str, Any]:
+    section = test.get("labels") or {}
     if not isinstance(section, dict):
-        return TestMetadata()
-    return TestMetadata(data=dict(section))
-
-
-def _parse_defaults(test: dict[str, Any]) -> TestDefaults:
-    section = test.get("test_settings") or {}
-    return _defaults_from_mapping(section, TestDefaults())
+        return {}
+    return dict(section)
 
 
 def _parse_profiles(test: dict[str, Any]) -> dict[str, PerformanceProfile]:
@@ -157,66 +159,62 @@ def _parse_profiles(test: dict[str, Any]) -> dict[str, PerformanceProfile]:
     for raw_name, mapping in section.items():
         if not isinstance(mapping, dict):
             continue
-        base = _defaults_from_mapping(mapping, TestDefaults())
+        wait_src = mapping.get("wait_time") or mapping.get("default_wait_time")
+        wait = WaitTime()
+        if isinstance(wait_src, dict):
+            wait = WaitTime(
+                min=float(wait_src.get("min", wait.min)),
+                max=float(wait_src.get("max", wait.max)),
+            )
         profiles[str(raw_name).lower()] = PerformanceProfile(
-            users=base.users,
-            spawn_rate=base.spawn_rate,
-            run_time=base.run_time,
-            engine_instances=base.engine_instances,
-            wait_time=base.wait_time,
-            test_name_prefix=base.test_name_prefix,
-            test_run_id_description=base.test_run_id_description,
+            users=int(mapping.get("users", 10)),
+            spawn_rate=int(mapping.get("spawn_rate", 2)),
+            run_time=str(mapping.get("run_time", "60s")),
+            engine_instances=int(mapping.get("engine_instances", 1)),
+            wait_time=wait,
         )
     return profiles
 
 
-def _parse_scenarios(test: dict[str, Any]) -> dict[str, Scenario]:
-    section = test.get("scenarios") or {}
+def _parse_scenario_defaults(test: dict[str, Any]) -> dict[str, ScenarioDefault]:
+    section = test.get("scenario_defaults") or {}
     if not isinstance(section, dict):
         return {}
-    scenarios: dict[str, Scenario] = {}
+    out: dict[str, ScenarioDefault] = {}
     for name, body in section.items():
         body = body or {}
         if not isinstance(body, dict):
             continue
-        metadata = dict(body.get("metadata") or {})
         profile = _clean_str(body.get("profile"))
-        overrides = {
-            k: v
-            for k, v in body.items()
-            if k not in {"metadata", "profile"}
-        }
-        scenarios[str(name)] = Scenario(
-            name=str(name),
-            profile=profile,
-            metadata=metadata,
-            overrides=overrides,
-        )
-    return scenarios
+        if not profile:
+            raise ConfigError(
+                f"scenario_defaults.{name}.profile is required "
+                f"(must reference a key under 'profiles:')."
+            )
+        metadata = body.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        out[str(name)] = ScenarioDefault(profile=profile, metadata=dict(metadata))
+    return out
 
 
-def _defaults_from_mapping(mapping: dict[str, Any], base: TestDefaults) -> TestDefaults:
-    wait = base.wait_time
-    wait_src = mapping.get("default_wait_time") or mapping.get("wait_time")
-    if isinstance(wait_src, dict):
-        wait = WaitTime(
-            min=float(wait_src.get("min", wait.min)),
-            max=float(wait_src.get("max", wait.max)),
-        )
-    return replace(
-        base,
-        users=int(mapping.get("users", base.users)),
-        spawn_rate=int(mapping.get("spawn_rate", base.spawn_rate)),
-        run_time=str(mapping.get("run_time", base.run_time)),
-        engine_instances=int(mapping.get("engine_instances", base.engine_instances)),
-        wait_time=wait,
-        test_name_prefix=str(mapping.get("test_name_prefix", base.test_name_prefix)),
-        test_run_id_description=str(
-            mapping.get("test_run_id_description", base.test_run_id_description)
-        ),
+def _parse_run_scenario(test: dict[str, Any]) -> RunScenario:
+    section = test.get("run_scenario") or {}
+    if not isinstance(section, dict):
+        return RunScenario()
+    labels = section.get("labels") or {}
+    if not isinstance(labels, dict):
+        labels = {}
+    return RunScenario(
+        scenario=_clean_str(section.get("scenario")),
+        profile=_clean_str(section.get("profile")),
+        labels=dict(labels),
     )
 
 
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
 def _ingest_from_cluster(uri: str) -> str | None:
     scheme, rest = _split_scheme(uri)
     host, _, path = rest.partition("/")
@@ -252,6 +250,10 @@ def _clean_str(value: Any) -> str | None:
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "yes", "1", "on"}
-    return bool(value)
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    return text in {"true", "1", "yes", "on"}
+
+
+__all__ = ["load_config", "load_from_paths"]

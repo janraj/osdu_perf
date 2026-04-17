@@ -14,123 +14,31 @@ def _write(tmp_path: Path, name: str, text: str) -> Path:
     return path
 
 
-def test_osdu_environment_and_metadata_come_from_test_config(tmp_path: Path) -> None:
-    system = _write(tmp_path, "system.yaml", "azure_load_test:\n  location: eastus\n")
-    test = _write(
-        tmp_path,
-        "test.yaml",
+def _test_yaml(extra: str = "") -> str:
+    return (
         """
 osdu_environment:
   host: https://example.com
   partition: opendes
   app_id: abc-123
-test_metadata:
+labels:
   version: "25.2.35"
-  build_id: "abc"
-scenarios:
-  smoke:
-    users: 20
-""",
-    )
-    config = load_from_paths(system, test)
-    assert config.osdu_env.host == "https://example.com"
-    assert config.test_metadata.as_dict() == {"version": "25.2.35", "build_id": "abc"}
-
-
-def test_cli_profile_overrides_scenario_profile(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(
-        tmp_path,
-        "t.yaml",
-        """
 profiles:
-  default: { users: 10 }
-  flex:    { users: 100, run_time: "5m" }
-scenarios:
-  smoke:
-    profile: default
-""",
+  U50_T15M:  { users: 50,  spawn_rate: 5,  run_time: "15m" }
+  U100_T15M: { users: 100, spawn_rate: 10, run_time: "15m" }
+  U200_T30M: { users: 200, spawn_rate: 20, run_time: "30m" }
+"""
+        + extra
     )
-    config = load_from_paths(system, test)
-    assert config.resolved_settings("smoke").users == 10
-    assert config.resolved_settings("smoke", profile_name="flex").users == 100
-    assert config.resolved_settings("smoke", profile_name="flex").run_time == "5m"
 
 
-def test_scenario_overrides_win_over_profile(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(
-        tmp_path,
-        "t.yaml",
-        """
-profiles:
-  flex: { users: 100 }
-scenarios:
-  smoke:
-    profile: flex
-    users: 25
-""",
-    )
-    config = load_from_paths(system, test)
-    assert config.resolved_settings("smoke").users == 25
-
-
-def test_default_profile_used_when_nothing_specified(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(
-        tmp_path,
-        "t.yaml",
-        """
-profiles:
-  default: { users: 7 }
-scenarios:
-  smoke: {}
-""",
-    )
-    config = load_from_paths(system, test)
-    assert config.resolved_settings("smoke").users == 7
-
-
-def test_falls_back_to_defaults_when_no_default_profile(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(
-        tmp_path,
-        "t.yaml",
-        """
-test_settings:
-  users: 3
-scenarios:
-  smoke: {}
-""",
-    )
-    config = load_from_paths(system, test)
-    assert config.resolved_settings("smoke").users == 3
-
-
-def test_unknown_profile_raises(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(
-        tmp_path,
-        "t.yaml",
-        "profiles:\n  default: { users: 1 }\nscenarios:\n  smoke: {}\n",
-    )
-    config = load_from_paths(system, test)
-    with pytest.raises(ConfigError):
-        config.resolved_settings("smoke", profile_name="nope")
-
-
-def test_scenario_missing_raises(tmp_path: Path) -> None:
-    system = _write(tmp_path, "s.yaml", "")
-    test = _write(tmp_path, "t.yaml", "scenarios: {}\n")
-    config = load_from_paths(system, test)
-    with pytest.raises(ScenarioNotFoundError):
-        config.scenario("nope")
-
-
+# ---------------------------------------------------------------------
+# azure_config.yaml
+# ---------------------------------------------------------------------
 def test_azure_load_test_and_kusto_export_are_separate_sections(tmp_path: Path) -> None:
-    system = _write(
+    azure = _write(
         tmp_path,
-        "system.yaml",
+        "azure.yaml",
         """
 azure_load_test:
   subscription_id: sub-1
@@ -143,17 +51,156 @@ kusto_export:
   database: perf-db
 """,
     )
-    test = _write(tmp_path, "test.yaml", "scenarios: {}\n")
-    config = load_from_paths(system, test)
+    test = _write(tmp_path, "t.yaml", _test_yaml())
+    config = load_from_paths(azure, test)
 
     assert config.azure_load_test.subscription_id == "sub-1"
-    assert config.azure_load_test.resource_group == "rg-1"
-    assert config.azure_load_test.location == "westus2"
-    assert config.azure_load_test.allow_resource_creation is True
     assert config.azure_load_test.name == "my-alt"
+    assert config.azure_load_test.allow_resource_creation is True
 
     assert config.kusto_export.is_configured
     assert config.kusto_export.database == "perf-db"
-    # ingest_uri auto-derived from cluster_uri
     assert config.kusto_export.ingest_uri == "https://ingest-foo.eastus.kusto.windows.net"
 
+
+# ---------------------------------------------------------------------
+# test_config.yaml
+# ---------------------------------------------------------------------
+def test_osdu_env_and_labels_come_from_test_config(tmp_path: Path) -> None:
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml())
+    config = load_from_paths(azure, test)
+    assert config.osdu_env.host == "https://example.com"
+    assert config.labels == {"version": "25.2.35"}
+
+
+def test_profiles_are_parsed(tmp_path: Path) -> None:
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml())
+    config = load_from_paths(azure, test)
+    assert set(config.profiles) == {"u50_t15m", "u100_t15m", "u200_t30m"}
+    assert config.profiles["u100_t15m"].users == 100
+    assert config.profiles["u200_t30m"].run_time == "30m"
+
+
+# ---------------------------------------------------------------------
+# resolve() precedence
+# ---------------------------------------------------------------------
+def test_cli_scenario_and_profile_win(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke:
+    profile: U50_T15M
+run_scenario:
+  scenario: other_thing
+  profile: U100_T15M
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+
+    resolved = config.resolve(scenario="smoke", profile="U200_T30M")
+    assert resolved.scenario == "smoke"
+    assert resolved.profile_name == "U200_T30M"
+    assert resolved.profile.users == 200
+
+
+def test_scenario_cli_uses_scenario_defaults_profile(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke:
+    profile: U100_T15M
+    metadata:
+      kind: query
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+
+    resolved = config.resolve(scenario="smoke")
+    assert resolved.profile_name == "U100_T15M"
+    assert resolved.labels == {"version": "25.2.35", "kind": "query"}
+
+
+def test_run_scenario_fills_in_when_cli_omits_scenario(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke:
+    profile: U50_T15M
+run_scenario:
+  scenario: smoke
+  profile: U200_T30M
+  labels:
+    triggered_by: nightly
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+
+    resolved = config.resolve()
+    assert resolved.scenario == "smoke"
+    # run_scenario.profile beats scenario_defaults[smoke].profile
+    assert resolved.profile_name == "U200_T30M"
+    # run_scenario.labels merge only when run_scenario supplied the scenario
+    assert resolved.labels == {
+        "version": "25.2.35",
+        "triggered_by": "nightly",
+    }
+
+
+def test_run_scenario_labels_ignored_when_scenario_is_explicit(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke:
+    profile: U50_T15M
+run_scenario:
+  scenario: smoke
+  labels:
+    triggered_by: nightly
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+
+    resolved = config.resolve(scenario="smoke")
+    assert "triggered_by" not in resolved.labels
+
+
+def test_missing_scenario_raises(tmp_path: Path) -> None:
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml())
+    config = load_from_paths(azure, test)
+    with pytest.raises(ScenarioNotFoundError):
+        config.resolve()
+
+
+def test_no_profile_anywhere_raises(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke: { profile: U100_T15M }
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+    # 'other' has no scenario_defaults entry and no --profile provided
+    with pytest.raises(ConfigError):
+        config.resolve(scenario="other")
+
+
+def test_unknown_profile_raises(tmp_path: Path) -> None:
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml())
+    config = load_from_paths(azure, test)
+    with pytest.raises(ConfigError):
+        config.resolve(scenario="anything", profile="does_not_exist")
+
+
+def test_scenario_defaults_missing_profile_raises(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  broken: {}
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    with pytest.raises(ConfigError):
+        load_from_paths(azure, test)

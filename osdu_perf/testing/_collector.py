@@ -22,7 +22,7 @@ def collect_payload(environment: Any, ctx: RequestContext) -> TelemetryPayload:
 
     env_label = "Azure Load Test" if os.getenv("AZURE_LOAD_TEST", "").lower() == "true" else "Local"
     adme = _adme_name(environment.host)
-    metadata = ctx.test_metadata()
+    metadata = ctx.labels()
 
     common = {
         "TestRunId": ctx.test_run_id,

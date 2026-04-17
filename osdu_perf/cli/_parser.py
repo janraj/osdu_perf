@@ -86,15 +86,17 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--scenario",
-        required=True,
-        help="Scenario name (must exist in config/test_config.yaml).",
+        help=(
+            "Scenario name. When omitted, falls back to "
+            "'run_scenario.scenario' in test_config.yaml."
+        ),
     )
     parser.add_argument(
         "--profile",
         help=(
-            "Profile name from test_config.yaml:profiles. Overrides the "
-            "scenario's own 'profile:' field. Falls back to the 'default' "
-            "profile, then to test_settings defaults."
+            "Profile name from test_config.yaml:profiles. Overrides any "
+            "default coming from scenario_defaults.<scenario>.profile or "
+            "run_scenario.profile."
         ),
     )
     parser.add_argument(

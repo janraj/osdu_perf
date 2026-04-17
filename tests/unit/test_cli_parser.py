@@ -1,7 +1,5 @@
 """Tests for the CLI argparse layer."""
 
-import pytest
-
 from osdu_perf.cli._parser import build_parser
 
 
@@ -12,10 +10,13 @@ def test_build_parser_accepts_init_with_sample() -> None:
     assert args.sample == "search_query"
 
 
-def test_run_local_requires_scenario() -> None:
+def test_run_local_scenario_is_optional() -> None:
     parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(["run", "local"])
+    args = parser.parse_args(["run", "local"])
+    assert args.command == "run"
+    assert args.target == "local"
+    assert args.scenario is None
+    assert args.profile is None
 
 
 def test_run_azure_forwards_flags() -> None:

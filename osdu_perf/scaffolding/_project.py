@@ -72,10 +72,9 @@ class Scaffolder:
             "SAMPLE_ENDPOINT": sample.endpoint,
             "CLASS_NAME": sample.class_name,
             "SCENARIO_NAME": sample.name,
-            "TEST_NAME_PREFIX": f"{sample.name}_perf",
         }
 
-        self._write("system_config.yaml.tpl", self._root / "config" / "system_config.yaml", substitutions)
+        self._write("azure_config.yaml.tpl", self._root / "config" / "azure_config.yaml", substitutions)
         self._write("test_config.yaml.tpl", self._root / "config" / "test_config.yaml", substitutions)
         self._write("locustfile.py.tpl", self._root / "locustfile.py", substitutions)
         self._write("perf_service_test.py.tpl", self._root / f"perf_{sample.name}_test.py", substitutions)

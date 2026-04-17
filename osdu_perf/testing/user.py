@@ -118,13 +118,13 @@ class PerformanceUser(HttpUser):
             scenario = parsed_options.scenario
         config = load_config()
         if not scenario:
-            if config.scenarios:
-                scenario = next(iter(config.scenarios))
-            else:
-                raise ConfigError(
-                    "No scenario selected. Pass --scenario to the CLI or set "
-                    "TEST_SCENARIO in the environment."
-                )
+            scenario = config.run_scenario.scenario or ""
+        if not scenario:
+            raise ConfigError(
+                "No scenario selected. Pass --scenario to the CLI, set "
+                "TEST_SCENARIO in the environment, or set "
+                "'run_scenario.scenario' in test_config.yaml."
+            )
         return RequestContext.from_environment(config, scenario=scenario)
 
     @staticmethod
@@ -145,7 +145,7 @@ class PerformanceUser(HttpUser):
             ("Spawn rate", getattr(parsed_options, "spawn_rate", "-")),
             ("Run time", getattr(parsed_options, "run_time", "-") or "-"),
         ]
-        metadata = ctx.test_metadata()
+        metadata = ctx.labels()
         if metadata:
             rows.append(("Metadata", ""))
             rows.extend((f"  {k}", v) for k, v in metadata.items())

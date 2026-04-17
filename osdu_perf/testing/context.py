@@ -60,7 +60,7 @@ class RequestContext:
         ):
             if not value:
                 raise ConfigError(
-                    f"Missing required value '{name}' in system_config.yaml "
+                    f"Missing required value '{name}' in test_config.yaml "
                     f"or environment (LOCUST_HOST/PARTITION/APPID)."
                 )
 
@@ -103,13 +103,14 @@ class RequestContext:
         return f"{self.test_run_id}-{self._hostname}-{counter}"
 
     # ------------------------------------------------------------------
-    # Metadata
+    # Labels
     # ------------------------------------------------------------------
-    def test_metadata(self) -> dict[str, Any]:
-        """Merged test_metadata (system) + per-scenario metadata overrides."""
-        merged = dict(self.config.test_metadata.as_dict())
-        if self.scenario in self.config.scenarios:
-            merged.update(self.config.scenarios[self.scenario].metadata)
+    def labels(self) -> dict[str, Any]:
+        """Merged top-level ``labels`` + per-scenario ``metadata``."""
+        merged = dict(self.config.labels)
+        default = self.config.scenario_defaults.get(self.scenario)
+        if default is not None:
+            merged.update(default.metadata)
         return merged
 
 
@@ -127,12 +128,8 @@ def _short_hostname() -> str:
 
 
 def _generate_test_run_id(config: AppConfig, scenario: str) -> str:
-    prefix = config.defaults.test_name_prefix
-    profile = config.profile()
-    if profile and profile.test_name_prefix:
-        prefix = profile.test_name_prefix
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return f"{prefix}_{scenario}_{stamp}"
+    return f"{scenario}_perf_{stamp}"
 
 
 __all__ = ["RequestContext"]

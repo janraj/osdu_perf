@@ -43,7 +43,7 @@ These are everything a test author or CI pipeline will notice.
 ```
 ./
 ├── config/
-│   ├── system_config.yaml
+│   ├── azure_config.yaml
 │   └── test_config.yaml
 ├── locustfile.py
 ├── perf_<sample>_test.py
@@ -58,7 +58,7 @@ Bundled samples: `storage_crud`, `search_query`, `schema_browse`. Run
 
 Two typed YAML files with a clean split between platform and test:
 
-* `config/system_config.yaml` — **platform only**, with two independent
+* `config/azure_config.yaml` — **platform only**, with two independent
   top-level sections:
   * `azure_load_test` — subscription, resource group, location,
     `allow_resource_creation`, and ALT resource `name`. Used only by
@@ -66,29 +66,49 @@ Two typed YAML files with a clean split between platform and test:
   * `kusto_export` — optional telemetry sink (`cluster_uri` or
     `ingest_uri`, plus `database`). Used by **both** `osdu_perf run
     local` and `osdu_perf run azure`.
-* `config/test_config.yaml` — **everything about the test**:
-  `osdu_environment` (host/partition/app_id), `test_metadata`,
-  `test_settings` (defaults), `profiles`, and `scenarios`.
+* `config/test_config.yaml` — **everything about the test**. Shape:
+  * `osdu_environment` — host, partition, app_id of the target OSDU
+    instance.
+  * `labels` — free-form passthrough attached verbatim to every Kusto
+    telemetry row. Renamed from `test_metadata`.
+  * `profiles` — named load shapes. Canonical naming convention
+    `U<users>_T<duration>` (e.g. `U100_T15M`). Each profile carries
+    `users`, `spawn_rate`, `run_time`, `engine_instances`, `wait_time`.
+  * `scenario_defaults` — per-scenario default profile + metadata.
+    Required sub-key: `profile:` (must reference a `profiles:` key).
+    Optional: `metadata:` (merged into telemetry labels).
+  * `run_scenario` — the default invocation when `osdu_perf run` is
+    called without `--scenario`. Can also override the profile and
+    append extra labels — those only apply when `run_scenario` is the
+    source of the scenario.
 
-The previous flat `azure_infra:` block (which nested `azure_load_test`
-and `kusto`) no longer exists — the two concerns are now siblings at
-the top of `system_config.yaml`.
+Resolution for a single run:
 
-`test_metadata` is now pure passthrough — every key/value is copied
-verbatim to each Kusto telemetry row and the framework never interprets
-it.
+* **Scenario**: `--scenario` CLI flag → `run_scenario.scenario` → error.
+* **Profile**: `--profile` CLI flag → (if scenario came from
+  `run_scenario`) `run_scenario.profile` →
+  `scenario_defaults[scenario].profile` → error listing available
+  profiles.
+* **Telemetry labels** (merged, last wins): top-level `labels` ←
+  `scenario_defaults[scenario].metadata` ← (if scenario came from
+  `run_scenario`) `run_scenario.labels`.
 
-Profile selection is explicit via the CLI or the scenario itself:
+Previous v2.0.0 concepts that are gone:
 
-```
---profile <name>   >   scenarios.<name>.profile   >   profiles.default   >   no profile
-```
+* `scenarios:` block as a registry — removed. Scenarios are Python
+  files under `perf_tests/`; the YAML only declares *defaults* for
+  them.
+* `test_settings:` top-level defaults — removed. Profiles are the only
+  source of load-shape values.
+* `test_metadata:` — renamed to `labels:`.
+* `profiles.default` as implicit fallback — removed. Either provide
+  `--profile`, `scenario_defaults[name].profile`, or
+  `run_scenario.profile`; otherwise `osdu_perf` errors with the list
+  of available profiles.
+* Scenario-level load-shape overrides (`users`, `spawn_rate`,
+  `run_time`) — removed. Pick a different profile instead.
 
-Then `scenarios.<name>` overrides (`users`, `spawn_rate`, `run_time`, …)
-always win over the selected profile.
-
-The old section name `performance_tier_profiles:` was renamed to
-`profiles:` to match the new model.
+`system_config.yaml` was renamed to `azure_config.yaml`.
 
 ### Public Python API
 
@@ -121,7 +141,8 @@ All library errors now inherit from `osdu_perf.errors.OsduPerfError`.
 Catching this base class is enough for CLI wrappers:
 
 * `ConfigError` — bad or missing YAML.
-* `ScenarioNotFoundError` — scenario not in `test_config.yaml`.
+* `ScenarioNotFoundError` — no scenario specified (neither CLI nor
+  `run_scenario.scenario`).
 * `AuthError` — token acquisition failed.
 * `AzureResourceError` — ALT resource missing / Graph call failed.
 * `ScaffoldError` — `init` collision, unknown sample.
@@ -187,11 +208,12 @@ osdu_perf/
 ### Added modules / classes
 
 * `config/_models.py`: `AppConfig`, `OsduEnv`, `AzureLoadTest`,
-  `KustoConfig`, `TestMetadata`, `TestDefaults`,
+  `KustoConfig`, `PerformanceProfile`, `ScenarioDefault`, `RunScenario`,
+  `ResolvedRun`, `WaitTime`.
   `PerformanceProfile`, `Scenario`, `WaitTime` — all frozen
   dataclasses. Merging logic (`resolved_settings`) lives on `AppConfig`.
 * `config/_loader.py`: `load_config(search_root=None)` walks up from cwd
-  looking for `config/system_config.yaml` + `config/test_config.yaml`.
+  looking for `config/azure_config.yaml` + `config/test_config.yaml`.
   `_ingest_from_cluster` / `_cluster_from_ingest` auto-derive the missing
   Kusto URI.
 * `auth/_token.py`: `TokenProvider` with a per-`app_id` cache and a

@@ -30,7 +30,7 @@ def run(args: argparse.Namespace) -> int:
     if not (host and partition and app_id):
         raise ConfigError("host, partition, and app_id must all be provided.")
 
-    settings = config.resolved_settings(args.scenario, profile_name=args.profile)
+    resolved = config.resolve(scenario=args.scenario, profile=args.profile)
     bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
     inputs = AzureRunInputs(
@@ -39,9 +39,9 @@ def run(args: argparse.Namespace) -> int:
         app_id=app_id,
         osdu_token=bearer,
         test_directory=project_dir,
-        settings=settings,
-        tags=dict(config.test_metadata.as_dict()),
-        scenario=args.scenario,
+        profile=resolved.profile,
+        labels={str(k): str(v) for k, v in resolved.labels.items()},
+        scenario=resolved.scenario,
     )
     runner = AzureRunner(config)
     result = runner.run(inputs)

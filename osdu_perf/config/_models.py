@@ -1,4 +1,4 @@
-"""Dataclass models describing ``system_config.yaml`` and ``test_config.yaml``."""
+"""Dataclass models describing ``azure_config.yaml`` and ``test_config.yaml``."""
 
 from __future__ import annotations
 
@@ -6,15 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass(frozen=True)
-class OsduEnv:
-    """OSDU instance coordinates from ``osdu_environment``."""
-
-    host: str | None = None
-    partition: str | None = None
-    app_id: str | None = None
-
-
+# ----------------------------------------------------------------------
+# azure_config.yaml
+# ----------------------------------------------------------------------
 @dataclass(frozen=True)
 class AzureLoadTest:
     """Azure Load Testing resource coordinates (used by ``run azure`` only)."""
@@ -44,54 +38,66 @@ class KustoConfig:
         return bool(self.database and (self.cluster_uri or self.ingest_uri))
 
 
+# ----------------------------------------------------------------------
+# test_config.yaml
+# ----------------------------------------------------------------------
 @dataclass(frozen=True)
-class TestMetadata:
-    """Opaque labels applied verbatim to every Kusto telemetry row.
+class OsduEnv:
+    """OSDU instance coordinates from ``osdu_environment``."""
 
-    The framework does not interpret any key. Add whatever makes your
-    dashboards useful (``version``, ``build_id``, ``region``, etc.).
-    """
-
-    data: dict[str, Any] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        return dict(self.data)
+    host: str | None = None
+    partition: str | None = None
+    app_id: str | None = None
 
 
 @dataclass(frozen=True)
 class WaitTime:
+    """Locust ``wait_time`` bounds in seconds."""
+
     min: float = 1.0
     max: float = 3.0
 
 
 @dataclass(frozen=True)
-class TestDefaults:
-    """Shared defaults used when a scenario omits a value."""
+class PerformanceProfile:
+    """A named load shape from ``profiles:``.
+
+    The canonical naming convention is ``U<users>_T<duration>`` (e.g.
+    ``U100_T15M``), but any key works — the string is opaque to the
+    framework.
+    """
 
     users: int = 10
     spawn_rate: int = 2
     run_time: str = "60s"
     engine_instances: int = 1
     wait_time: WaitTime = field(default_factory=WaitTime)
-    test_name_prefix: str = "osdu_perf_test"
-    test_run_id_description: str = "Test run for OSDU APIs"
 
 
 @dataclass(frozen=True)
-class PerformanceProfile(TestDefaults):
-    """Named settings bundle from ``test_config.yaml:profiles``."""
+class ScenarioDefault:
+    """Per-scenario default profile + metadata from ``scenario_defaults:``."""
 
-
-@dataclass(frozen=True)
-class Scenario:
-    """A named test scenario from ``test_config.yaml:scenarios``."""
-
-    name: str
-    profile: str | None = None
+    profile: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    overrides: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RunScenario:
+    """The default ``osdu_perf run`` invocation from ``run_scenario:``.
+
+    Used only when the CLI omits ``--scenario``. Fields inside apply
+    *only* when this block supplied the scenario.
+    """
+
+    scenario: str | None = None
+    profile: str | None = None
+    labels: dict[str, Any] = field(default_factory=dict)
+
+
+# ----------------------------------------------------------------------
+# Root
+# ----------------------------------------------------------------------
 @dataclass(frozen=True)
 class AppConfig:
     """Top-level configuration tree."""
@@ -99,108 +105,99 @@ class AppConfig:
     osdu_env: OsduEnv
     azure_load_test: AzureLoadTest
     kusto_export: KustoConfig
-    test_metadata: TestMetadata
-    defaults: TestDefaults
+    labels: dict[str, Any]
     profiles: dict[str, PerformanceProfile]
-    scenarios: dict[str, Scenario]
-    system_config_path: str | None = None
+    scenario_defaults: dict[str, ScenarioDefault]
+    run_scenario: RunScenario
+    azure_config_path: str | None = None
     test_config_path: str | None = None
 
-    def scenario(self, name: str) -> Scenario:
-        """Return the scenario by name, or raise ``ScenarioNotFoundError``."""
-        from ..errors import ScenarioNotFoundError
-
-        if name not in self.scenarios:
-            available = ", ".join(sorted(self.scenarios)) or "(none configured)"
-            raise ScenarioNotFoundError(
-                f"Scenario '{name}' not found in test_config.yaml. "
-                f"Available scenarios: {available}."
-            )
-        return self.scenarios[name]
-
-    def profile(self, name: str | None = None) -> PerformanceProfile | None:
-        """Return the named profile, the ``default`` profile, or ``None``.
-
-        Explicit ``name`` is required to exist. Otherwise returns the
-        ``default`` profile if defined, else ``None`` (caller should
-        treat this as "no profile layer, use raw :class:`TestDefaults`").
-        """
-        if name:
-            key = name.lower()
-            if key not in self.profiles:
-                from ..errors import ConfigError
-
-                available = ", ".join(sorted(self.profiles)) or "(none configured)"
-                raise ConfigError(
-                    f"Profile '{name}' not found in test_config.yaml. "
-                    f"Available profiles: {available}."
-                )
-            return self.profiles[key]
-        return self.profiles.get("default")
-
-    def resolved_settings(
+    # ------------------------------------------------------------------
+    # Resolution
+    # ------------------------------------------------------------------
+    def resolve(
         self,
-        scenario_name: str,
-        profile_name: str | None = None,
-    ) -> TestDefaults:
-        """Merge defaults → profile → scenario overrides into one view.
+        scenario: str | None = None,
+        profile: str | None = None,
+    ) -> ResolvedRun:
+        """Pick the scenario + profile + labels for a single run.
 
-        Profile resolution order: ``profile_name`` arg wins, then the
-        scenario's own ``profile:`` field, then the ``default`` profile
-        if defined, otherwise no profile layer is applied.
+        Precedence:
+
+        * **scenario**: ``scenario`` arg > ``run_scenario.scenario`` > error.
+        * **profile**: ``profile`` arg > (if scenario came from
+          ``run_scenario``) ``run_scenario.profile`` >
+          ``scenario_defaults[scenario].profile`` > error.
+        * **labels**: top-level ``labels`` merged with
+          ``scenario_defaults[scenario].metadata`` merged with (when
+          scenario came from ``run_scenario``) ``run_scenario.labels``.
         """
-        from dataclasses import replace
+        from ..errors import ConfigError, ScenarioNotFoundError
 
-        scenario = self.scenario(scenario_name)
-        effective_profile = profile_name or scenario.profile
-        profile = self.profile(effective_profile)
+        used_run_scenario = scenario is None
+        effective_scenario = scenario or self.run_scenario.scenario
+        if not effective_scenario:
+            raise ScenarioNotFoundError(
+                "No scenario specified. Pass --scenario or set "
+                "'run_scenario.scenario' in test_config.yaml."
+            )
 
-        merged = replace(self.defaults)
-        if profile is not None:
-            merged = _merge_defaults(merged, profile)
-        merged = _merge_mapping(merged, scenario.overrides)
-        return merged
+        default = self.scenario_defaults.get(effective_scenario)
 
+        if profile:
+            profile_name = profile
+        elif used_run_scenario and self.run_scenario.profile:
+            profile_name = self.run_scenario.profile
+        elif default is not None:
+            profile_name = default.profile
+        else:
+            available = ", ".join(sorted(self.profiles)) or "(none configured)"
+            raise ConfigError(
+                f"No profile resolved for scenario '{effective_scenario}'. "
+                f"Pass --profile, or add a 'scenario_defaults.{effective_scenario}.profile' "
+                f"entry. Available profiles: {available}."
+            )
 
-def _merge_defaults(base: TestDefaults, overlay: TestDefaults) -> TestDefaults:
-    from dataclasses import replace
+        key = profile_name.lower()
+        if key not in self.profiles:
+            available = ", ".join(sorted(self.profiles)) or "(none configured)"
+            raise ConfigError(
+                f"Profile '{profile_name}' not found in test_config.yaml. "
+                f"Available profiles: {available}."
+            )
 
-    return replace(
-        base,
-        users=overlay.users or base.users,
-        spawn_rate=overlay.spawn_rate or base.spawn_rate,
-        run_time=overlay.run_time or base.run_time,
-        engine_instances=overlay.engine_instances or base.engine_instances,
-        wait_time=overlay.wait_time or base.wait_time,
-        test_name_prefix=overlay.test_name_prefix or base.test_name_prefix,
-        test_run_id_description=overlay.test_run_id_description
-        or base.test_run_id_description,
-    )
+        merged_labels: dict[str, Any] = dict(self.labels)
+        if default is not None:
+            merged_labels.update(default.metadata)
+        if used_run_scenario:
+            merged_labels.update(self.run_scenario.labels)
 
-
-def _merge_mapping(base: TestDefaults, overrides: dict[str, Any]) -> TestDefaults:
-    from dataclasses import replace
-
-    if not overrides:
-        return base
-
-    wait = base.wait_time
-    if isinstance(overrides.get("wait_time"), dict):
-        wait_overrides = overrides["wait_time"]
-        wait = WaitTime(
-            min=float(wait_overrides.get("min", wait.min)),
-            max=float(wait_overrides.get("max", wait.max)),
+        return ResolvedRun(
+            scenario=effective_scenario,
+            profile_name=profile_name,
+            profile=self.profiles[key],
+            labels=merged_labels,
         )
 
-    return replace(
-        base,
-        users=int(overrides.get("users", base.users)),
-        spawn_rate=int(overrides.get("spawn_rate", base.spawn_rate)),
-        run_time=str(overrides.get("run_time", base.run_time)),
-        engine_instances=int(overrides.get("engine_instances", base.engine_instances)),
-        wait_time=wait,
-        test_name_prefix=str(overrides.get("test_name_prefix", base.test_name_prefix)),
-        test_run_id_description=str(
-            overrides.get("test_run_id_description", base.test_run_id_description)
-        ),
-    )
+
+@dataclass(frozen=True)
+class ResolvedRun:
+    """Outcome of :meth:`AppConfig.resolve` — everything one run needs."""
+
+    scenario: str
+    profile_name: str
+    profile: PerformanceProfile
+    labels: dict[str, Any]
+
+
+__all__ = [
+    "AppConfig",
+    "AzureLoadTest",
+    "KustoConfig",
+    "OsduEnv",
+    "PerformanceProfile",
+    "ResolvedRun",
+    "RunScenario",
+    "ScenarioDefault",
+    "WaitTime",
+]

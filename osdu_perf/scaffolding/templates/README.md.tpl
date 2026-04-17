@@ -7,8 +7,8 @@ Scaffolded by `osdu_perf init --sample=${SAMPLE_NAME}`.
 ```
 ./
 ├── config/
-│   ├── system_config.yaml   # OSDU + Azure + Kusto settings
-│   └── test_config.yaml     # scenarios, defaults, profiles
+│   ├── azure_config.yaml    # Azure Load Test + Kusto export settings
+│   └── test_config.yaml     # OSDU env, labels, profiles, scenario defaults
 ├── locustfile.py            # Locust entrypoint
 ├── perf_${SAMPLE_NAME}_test.py  # service-specific tasks
 ├── requirements.txt
@@ -27,5 +27,5 @@ osdu_perf run local --scenario ${SAMPLE_NAME}
 osdu_perf run azure --scenario ${SAMPLE_NAME}
 ```
 
-Edit `config/system_config.yaml` first — the host, partition, and app id
+Edit `config/test_config.yaml` first — the `osdu_environment` block
 must point at a real OSDU instance before the tests will work.

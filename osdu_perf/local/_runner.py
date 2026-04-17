@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from ..config import AppConfig, TestDefaults
+from ..config import AppConfig, PerformanceProfile
 from ..errors import ConfigError
 from ..telemetry import get_logger
 
@@ -24,7 +24,7 @@ class LocalRunInputs:
     app_id: str
     bearer_token: str | None
     scenario: str
-    settings: TestDefaults
+    profile: PerformanceProfile
     locustfile: Path
     headless: bool = False
 
@@ -74,11 +74,11 @@ def _build_command(inputs: LocalRunInputs) -> list[str]:
         "--host",
         inputs.host,
         "--users",
-        str(inputs.settings.users),
+        str(inputs.profile.users),
         "--spawn-rate",
-        str(inputs.settings.spawn_rate),
+        str(inputs.profile.spawn_rate),
         "--run-time",
-        inputs.settings.run_time,
+        inputs.profile.run_time,
     ]
     if inputs.scenario:
         cmd.extend(["--tags", inputs.scenario])
@@ -89,8 +89,7 @@ def _build_command(inputs: LocalRunInputs) -> list[str]:
 
 def _run_id(inputs: LocalRunInputs) -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    prefix = inputs.settings.test_name_prefix or "osdu_perf_test"
-    return f"{prefix}_{inputs.scenario}_{stamp}"
+    return f"{inputs.scenario}_perf_{stamp}"
 
 
 __all__ = ["LocalRunner", "LocalRunInputs"]

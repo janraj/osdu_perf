@@ -11,7 +11,7 @@ from typing import Any
 from azure.developer.loadtesting import LoadTestAdministrationClient, LoadTestRunClient
 from azure.identity import AzureCliCredential
 
-from ..config import AppConfig, TestDefaults
+from ..config import AppConfig, PerformanceProfile
 from ..errors import AzureResourceError, ConfigError
 from ..telemetry import get_logger
 from .entitlements import EntitlementProvisioner
@@ -32,8 +32,8 @@ class AzureRunInputs:
     app_id: str
     osdu_token: str
     test_directory: Path
-    settings: TestDefaults
-    tags: dict[str, str]
+    profile: PerformanceProfile
+    labels: dict[str, str]
     scenario: str
 
 
@@ -111,20 +111,20 @@ class AzureRunner:
             "LOCUST_HOST": inputs.host,
             "PARTITION": inputs.partition,
             "APPID": inputs.app_id,
-            "LOCUST_USERS": str(inputs.settings.users),
-            "LOCUST_SPAWN_RATE": str(inputs.settings.spawn_rate),
-            "LOCUST_RUN_TIME": str(_to_seconds(inputs.settings.run_time)),
+            "LOCUST_USERS": str(inputs.profile.users),
+            "LOCUST_SPAWN_RATE": str(inputs.profile.spawn_rate),
+            "LOCUST_RUN_TIME": str(_to_seconds(inputs.profile.run_time)),
             "AZURE_LOAD_TEST": "true",
             "TEST_SCENARIO": inputs.scenario,
             "ADME_BEARER_TOKEN": inputs.osdu_token,
         }
         body = {
             "displayName": test_name[:50],
-            "description": inputs.settings.test_run_id_description,
+            "description": f"OSDU perf run: {inputs.scenario}",
             "kind": "Locust",
             "engineBuiltinIdentityType": "SystemAssigned",
             "loadTestConfiguration": {
-                "engineInstances": inputs.settings.engine_instances,
+                "engineInstances": inputs.profile.engine_instances,
                 "splitAllCSVs": False,
                 "quickStartTest": False,
             },
@@ -163,9 +163,8 @@ class AzureRunner:
 # Helpers
 # ----------------------------------------------------------------------
 def _build_test_name(inputs: AzureRunInputs) -> str:
-    prefix = inputs.settings.test_name_prefix
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    raw = f"{prefix}_{inputs.scenario}_{timestamp}"
+    raw = f"{inputs.scenario}_perf_{timestamp}"
     return _slug(raw)
 
 
