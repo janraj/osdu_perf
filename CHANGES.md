@@ -1,9 +1,9 @@
 # Changelog
 
-## 3.0.0 — Full rewrite
+## 2.0.0 — Full rewrite
 
 Complete refactor for open-source release quality. No backward compatibility
-with v2.
+with v1.
 
 ### New package layout
 
@@ -31,11 +31,11 @@ osdu_perf/
 ### CLI redesign
 
 ```bash
-# v2
+# v1
 osdu_perf init search                        # positional
 osdu_perf run local --partition opendes ...
 
-# v3
+# v2
 osdu_perf init --sample=search_query         # named --sample
 osdu_perf run local --scenario search_query  # subcommand
 osdu_perf run azure --scenario search_query
@@ -61,6 +61,6 @@ osdu_perf version
 * Bundled sample templates shipped via `importlib.resources`.
 * `ruff.toml` with sensible defaults.
 
-## 2.0.0 — Prior v2 cleanup
+## 1.x
 
 See Git history for details.
