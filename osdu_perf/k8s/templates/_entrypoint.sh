@@ -20,6 +20,9 @@ if [ "$ROLE" = "master" ]; then
         # Web-UI mode: keep master alive, expose UI on 0.0.0.0:8089.
         # User triggers runs from the browser; --headless and --run-time omitted.
         WEB_COMMON="-f ${LOCUSTFILE} --host=${HOST} --web-host=0.0.0.0 --web-port=8089"
+        if [ -n "${LOCUST_WEB_BASE_PATH:-}" ]; then
+            WEB_COMMON="$WEB_COMMON --web-base-path=${LOCUST_WEB_BASE_PATH}"
+        fi
         if [ "$EXPECT_WORKERS" -le 0 ]; then
             unset LOCUST_EXPECT_WORKERS
             exec locust $WEB_COMMON

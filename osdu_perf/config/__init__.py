@@ -13,6 +13,7 @@ is what every other subsystem consumes.
 from ._loader import load_config, load_from_paths
 from ._models import (
     AksConfig,
+    AksIngress,
     AppConfig,
     AzureLoadTest,
     ContainerRegistryConfig,
@@ -27,6 +28,7 @@ from ._models import (
 
 __all__ = [
     "AksConfig",
+    "AksIngress",
     "AppConfig",
     "AzureLoadTest",
     "ContainerRegistryConfig",

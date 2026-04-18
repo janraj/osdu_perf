@@ -1,5 +1,80 @@
 # Changelog
 
+## 2.2.1 — Bug fixes on top of 2.2.0
+
+### Fixes
+
+* **No Kusto rows ingested for distributed `run k8s` runs.** In
+  distributed mode the master runs no Users, so
+  `PerformanceUser._context` stayed `None` and `_on_test_stop` silently
+  returned. The `test_start` listener now builds the context eagerly
+  on master/local runners (workers still build lazily on first User
+  spawn).
+* **`osdu_perf run local` failed with "Locust is not installed"**
+  outside an activated venv. The runner now invokes
+  `sys.executable -m locust` instead of bare `locust` so the right
+  interpreter is always used.
+
+## 2.2.0 — Helm-chart–backed AKS runner
+
+### Highlights
+
+* `osdu_perf run k8s` now deploys via a **bundled Helm chart**
+  (`osdu_perf/k8s/chart/`) instead of hand-rolled
+  `string.Template` YAML. One `helm upgrade --install` owns the
+  ServiceAccount, ConfigMap, master Service + Deployment/Job, worker
+  Deployment/Job, and — new — the resource that exposes the Locust web
+  UI outside the cluster.
+* New `aks.ingress:` config block (see Readme). `type: istio` renders
+  a `VirtualService` bound to an existing `Gateway`; `type: ingress`
+  renders a standard Kubernetes `Ingress`; `type: none` (default)
+  keeps the UI cluster-internal (use `kubectl port-forward`).
+* The master auto-applies `--web-base-path=<path_prefix>` when
+  `ingress.type != none`, so the UI works behind a sub-path route
+  without extra flags.
+* Adhoc YAML samples removed — the chart is the single source of
+  truth for what runs on the cluster.
+
+### Breaking
+
+* **New prerequisite**: `helm` (v3+) must be on the operator's
+  `PATH`. `docker`, `az`, and `kubectl` requirements are unchanged.
+* Removed internal module `osdu_perf.k8s.manifests`
+  (`stage_build_context` now lives in `osdu_perf.k8s.builder`).
+
+### Added
+
+* `osdu_perf.config.AksIngress` dataclass (exposed from
+  `osdu_perf.config`) mirroring the new `aks.ingress:` YAML block.
+* `tests/unit/test_k8s_chart.py` covering values-dict rendering and
+  (when `helm` is on `PATH`) a live `helm template` round-trip.
+
+## 2.1.1 — Bug fixes for k8s telemetry
+
+### Fixes
+
+* **Duplicate Kusto summary rows** in distributed (master + N workers)
+  runs. `test_stop` was firing on every worker *and* the master, each
+  ingesting their partial view. Now workers skip ingestion (detected via
+  `type(environment.runner).__name__ == "WorkerRunner"`); the master
+  remains the sole ingestor with aggregated stats.
+* **`--label KEY=VALUE` missing from Kusto `Labels` column** for
+  `run k8s`. The CLI merged labels into runner inputs but never
+  propagated them into the pod. The k8s ConfigMap now carries
+  `OSDU_PERF_EXTRA_LABELS` (JSON, YAML-escaped), which
+  `RequestContext.labels()` already consumes.
+* **`Users`, `SpawnRate`, `RunTimeSeconds` reported as `0`** in Kusto
+  for web-UI and adhoc runs where the ConfigMap didn't set
+  `OSDU_PERF_PROFILE_*` env vars. The collector now reads live values
+  from `environment.runner.target_user_count` / `runner.spawn_rate` /
+  `parsed_options.run_time` with fallback to the env-var-derived
+  `RequestContext` fields.
+* **`TestDurationSeconds=0`** when `stats.total.last_request_timestamp`
+  is `None` (e.g. a failed run with no successful requests). Falls
+  back to the observed wall-clock duration from `runner.start_time`.
+* **`RunTimeSeconds` column in web-UI mode** now reports the observed
+  duration when no `--run-time` was supplied, instead of `0`.
+
 ## 2.1.0 — AKS runner, web-UI mode, in-browser overrides
 
 Additive, backward-compatible enhancements on top of `2.0.0`. No

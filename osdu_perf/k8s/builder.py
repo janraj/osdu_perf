@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 
 from ..config import ContainerRegistryConfig
 from ..errors import ConfigError
 from ..telemetry import get_logger
 from . import cluster
-from .manifests import stage_build_context
 
 _LOGGER = get_logger("k8s.builder")
+_TEMPLATE_PKG = "osdu_perf.k8s.templates"
+
+
+def stage_build_context(project_dir: Path, dest_dir: Path) -> None:
+    """Copy Dockerfile, entrypoint, and ``.dockerignore`` into ``dest_dir``.
+
+    Existing files in ``dest_dir`` are overwritten so re-runs always pick
+    up the latest packaged assets. ``project_dir`` is kept as a parameter
+    for future use (e.g. path-dependent build overrides) and currently
+    behaves the same as ``dest_dir``.
+    """
+    del project_dir  # unused today; preserved for API compatibility
+    for name, mode in (
+        ("Dockerfile", 0o644),
+        ("_entrypoint.sh", 0o755),
+        (".dockerignore", 0o644),
+    ):
+        target = dest_dir / name
+        target.write_bytes(
+            files(_TEMPLATE_PKG).joinpath(name).read_bytes()
+        )
+        with contextlib.suppress(OSError):
+            target.chmod(mode)
 
 
 @dataclass(frozen=True)

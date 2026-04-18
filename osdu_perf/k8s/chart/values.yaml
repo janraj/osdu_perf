@@ -1,0 +1,96 @@
+# Defaults for the osdu-perf chart.
+# All fields are overridden by K8sRunner from azure_config.yaml + CLI flags.
+
+# DNS-1123 run identifier; becomes the prefix of every resource name.
+runName: osdu-perf-run
+
+# Namespace (the chart itself does not create it; the runner does that
+# idempotently before `helm upgrade --install`).
+namespace: perf
+
+# Image coordinates.
+image:
+  repository: ""              # e.g. myacr.azurecr.io/osdu-perf
+  tag: ""                     # e.g. search-query-sabz-bsv5-260418111011
+  pullPolicy: Always
+
+# ServiceAccount bound to a federated identity (Workload Identity).
+serviceAccount:
+  name: osdu-perf-runner
+  # When true, the chart creates the ServiceAccount with the
+  # workload-identity annotation. When false, it assumes one exists
+  # already in the namespace (recommended for shared clusters).
+  create: false
+  workloadIdentityClientId: ""
+
+# Mode: "headless" (Job) or "webui" (Deployment + Locust UI kept alive).
+mode: headless
+
+# Master pod.
+master:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+# Worker pods. `count` is usually `engine_instances - 1` (one worker
+# slot goes to the master).
+workers:
+  count: 0
+  resources:
+    requests:
+      cpu: "4"
+      memory: "8Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
+# Everything the pod needs at runtime — rendered straight into the
+# ConfigMap. The runner fills this in from azure_config.yaml +
+# test_config.yaml + CLI.
+env:
+  LOCUST_HOST: ""
+  LOCUST_USERS: "1"
+  LOCUST_SPAWN_RATE: "1"
+  LOCUST_RUN_TIME: "60s"
+  LOCUST_EXPECT_WORKERS: "0"
+  PARTITION: ""
+  APPID: ""
+  AZURE_LOAD_TEST: "true"
+  OSDU_PERF_ENV: "AKS"
+  TEST_SCENARIO: ""
+  OSDU_PERF_PROFILE_NAME: ""
+  OSDU_PERF_PROFILE_USERS: "1"
+  OSDU_PERF_PROFILE_SPAWN_RATE: "1"
+  OSDU_PERF_PROFILE_RUN_TIME: "60s"
+  OSDU_PERF_PROFILE_ENGINES: "1"
+  OSDU_PERF_TEST_NAME: ""
+  OSDU_PERF_TEST_RUN_ID: ""
+  OSDU_PERF_AZURE_CONFIG: ""
+  WEB_UI: "false"
+  # JSON blob of extra labels; merged into every Kusto row.
+  OSDU_PERF_EXTRA_LABELS: ""
+
+# External exposure for the Locust web UI.
+# Types: "none" | "istio" | "ingress"
+ingress:
+  type: none
+
+  # Shared across all types.
+  host: ""                    # e.g. perf.example.com
+  pathPrefix: /locust
+
+  # type=istio
+  istio:
+    gateway: istio-system/istio-gateway
+    timeout: 3600s
+
+  # type=ingress (plain k8s Ingress)
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []

@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 from ..kusto import TelemetryPayload
 from . import _events
-from .context import RequestContext
+from .context import RequestContext, _parse_run_time
 
 
 def collect_payload(environment: Any, ctx: RequestContext) -> TelemetryPayload:
@@ -31,11 +31,15 @@ def collect_payload(environment: Any, ctx: RequestContext) -> TelemetryPayload:
     start_dt = _datetime_from_runner(runner) or _datetime_from_entry(stats.total)
     end_dt = _last_request_dt(stats.total) or now
     duration_s = (end_dt - start_dt).total_seconds() if start_dt else _entry_duration(stats.total)
+    if duration_s <= 0 and start_dt:
+        # Fall back to wall-clock duration when no requests have been
+        # aggregated yet (e.g. master with 0 workers that errored out).
+        duration_s = max(0.0, (now - start_dt).total_seconds())
     if duration_s < 0:
         duration_s = 0.0
 
     service_override = _collect_service_overrides()
-    envelope = _envelope(ctx, now)
+    envelope = _envelope(ctx, now, environment, duration_s)
 
     return TelemetryPayload(
         metrics=_metrics_rows(stats, envelope, ctx, service_override),
@@ -48,7 +52,12 @@ def collect_payload(environment: Any, ctx: RequestContext) -> TelemetryPayload:
 # ----------------------------------------------------------------------
 # Envelope (common columns)
 # ----------------------------------------------------------------------
-def _envelope(ctx: RequestContext, now: datetime) -> dict[str, Any]:
+def _envelope(
+    ctx: RequestContext,
+    now: datetime,
+    environment: Any = None,
+    duration_s: float = 0.0,
+) -> dict[str, Any]:
     explicit = os.getenv("OSDU_PERF_ENV", "").strip()
     if explicit:
         env_label = explicit
@@ -56,6 +65,43 @@ def _envelope(ctx: RequestContext, now: datetime) -> dict[str, Any]:
         env_label = "Azure Load Test"
     else:
         env_label = "Local"
+
+    # Prefer live values from the running Locust environment so the Kusto
+    # row reflects what was actually executed (including web-UI overrides
+    # typed into the swarm form). Fall back to whatever the pod was started
+    # with.
+    users = ctx.profile_users or 0
+    spawn_rate = float(ctx.profile_spawn_rate or 0.0)
+    run_time_seconds = int(ctx.profile_run_time_seconds or 0)
+
+    opts = getattr(environment, "parsed_options", None)
+    runner = getattr(environment, "runner", None)
+    if opts is not None:
+        live_users = getattr(opts, "num_users", None)
+        if live_users:
+            users = int(live_users)
+        live_spawn = getattr(opts, "spawn_rate", None)
+        if live_spawn:
+            spawn_rate = float(live_spawn)
+        live_run_time = getattr(opts, "run_time", None)
+        if live_run_time:
+            run_time_seconds = _parse_run_time(str(live_run_time))
+    if runner is not None:
+        target_users = getattr(runner, "target_user_count", None) or getattr(
+            runner, "user_count", None
+        )
+        if target_users:
+            users = int(target_users)
+        live_spawn = getattr(runner, "spawn_rate", None)
+        if live_spawn:
+            spawn_rate = float(live_spawn)
+
+    # In web-UI mode the user can press Stop manually, so there's no
+    # configured run time. Emit the observed duration instead — keeps
+    # the column useful for UI-driven runs.
+    if run_time_seconds == 0 and duration_s > 0:
+        run_time_seconds = int(duration_s)
+
     return {
         "TestRunId": ctx.test_run_id,
         "ADME": _adme_name(ctx.host),
@@ -64,9 +110,9 @@ def _envelope(ctx: RequestContext, now: datetime) -> dict[str, Any]:
         "TestScenario": ctx.scenario,
         "TestName": ctx.test_name or ctx.scenario,
         "ProfileName": ctx.profile_name,
-        "Users": int(ctx.profile_users or 0),
-        "SpawnRate": float(ctx.profile_spawn_rate or 0.0),
-        "RunTimeSeconds": int(ctx.profile_run_time_seconds or 0),
+        "Users": int(users),
+        "SpawnRate": float(spawn_rate),
+        "RunTimeSeconds": int(run_time_seconds),
         "EngineInstances": int(ctx.profile_engine_instances or 0),
         "EngineId": ctx.engine_id or "",
         "ALTTestRunId": ctx.alt_test_run_id or "",

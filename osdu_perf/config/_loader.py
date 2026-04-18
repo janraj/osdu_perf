@@ -17,6 +17,7 @@ from ..errors import ConfigError
 from ..telemetry import get_logger
 from ._models import (
     AksConfig,
+    AksIngress,
     AppConfig,
     AzureLoadTest,
     ContainerRegistryConfig,
@@ -198,6 +199,32 @@ def _parse_aks(azure: dict[str, Any]) -> AksConfig:
         service_account=_clean_str(section.get("service_account")) or "osdu-perf-runner",
         workload_identity_client_id=_clean_str(section.get("workload_identity_client_id")),
         web_ui=_as_bool(section.get("web_ui", False)),
+        ingress=_parse_aks_ingress(section.get("ingress")),
+    )
+
+
+def _parse_aks_ingress(raw: Any) -> AksIngress:
+    if not isinstance(raw, dict):
+        return AksIngress()
+    istio = raw.get("istio") or {}
+    ingress = raw.get("ingress") or {}
+    if not isinstance(istio, dict):
+        istio = {}
+    if not isinstance(ingress, dict):
+        ingress = {}
+    annotations = ingress.get("annotations") or {}
+    if not isinstance(annotations, dict):
+        annotations = {}
+    return AksIngress(
+        type=_clean_str(raw.get("type")) or "none",
+        host=_clean_str(raw.get("host")),
+        path_prefix=_clean_str(raw.get("path_prefix")) or "/locust",
+        istio_gateway=_clean_str(istio.get("gateway")) or "istio-system/istio-gateway",
+        istio_timeout=_clean_str(istio.get("timeout")) or "3600s",
+        ingress_class_name=_clean_str(ingress.get("className")),
+        ingress_annotations={
+            str(k): str(v) for k, v in annotations.items() if v is not None
+        },
     )
 
 

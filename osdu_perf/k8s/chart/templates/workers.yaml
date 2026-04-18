@@ -1,0 +1,82 @@
+{{- if gt (int .Values.workers.count) 0 -}}
+{{- $isWebUi := eq (include "osdu-perf.isWebUi" .) "true" -}}
+{{- $fullName := include "osdu-perf.name" . -}}
+{{- $image := include "osdu-perf.image" . -}}
+{{- $count := int .Values.workers.count -}}
+{{- $masterHost := printf "%s-master.%s.svc.cluster.local" $fullName .Values.namespace -}}
+
+{{- if $isWebUi }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-workers
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+    osdu-perf.io/role: worker
+spec:
+  replicas: {{ $count }}
+  selector:
+    matchLabels:
+      {{- include "osdu-perf.workerSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-perf.labels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+        osdu-perf.io/role: worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: locust
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
+          envFrom:
+            - configMapRef:
+                name: {{ $fullName }}-env
+          env:
+            - name: LOCUST_ROLE
+              value: worker
+            - name: LOCUST_MASTER_HOST
+              value: {{ $masterHost | quote }}
+          resources:
+            {{- toYaml .Values.workers.resources | nindent 12 }}
+{{- else }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-workers
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+    osdu-perf.io/role: worker
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  parallelism: {{ $count }}
+  completions: {{ $count }}
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-perf.labels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+        osdu-perf.io/role: worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      restartPolicy: Never
+      containers:
+        - name: locust
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
+          envFrom:
+            - configMapRef:
+                name: {{ $fullName }}-env
+          env:
+            - name: LOCUST_ROLE
+              value: worker
+            - name: LOCUST_MASTER_HOST
+              value: {{ $masterHost | quote }}
+          resources:
+            {{- toYaml .Values.workers.resources | nindent 12 }}
+{{- end }}
+{{- end }}

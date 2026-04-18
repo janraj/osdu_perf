@@ -1,27 +1,33 @@
 """End-to-end orchestrator for ``osdu_perf run k8s``.
 
-Mirrors :class:`osdu_perf.azure.runner.AzureRunner` but targets an AKS
-cluster: build + push image, fetch cluster credentials, render manifests,
-``kubectl apply``, then stream master logs until the Job completes.
+Builds + pushes the test image, renders a Helm values dict, then invokes
+``helm upgrade --install`` against the bundled ``osdu-perf`` chart to roll
+out Locust master + workers + (optional) Istio VirtualService or plain
+Ingress for external web-UI access.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from ..config import AppConfig, PerformanceProfile
 from ..errors import ConfigError
 from ..telemetry import get_logger
 from . import cluster
 from .builder import ImageBuilder
-from .manifests import render_all
 
 _LOGGER = get_logger("k8s.runner")
 _NAME_RE = re.compile(r"[^a-z0-9-]+")
+_CHART_PKG = "osdu_perf.k8s.chart"
 
 
 @dataclass(frozen=True)
@@ -48,7 +54,7 @@ class K8sRunInputs:
 
 
 class K8sRunner:
-    """Orchestrate a distributed Locust run on AKS."""
+    """Orchestrate a distributed Locust run on AKS via Helm."""
 
     def __init__(self, config: AppConfig) -> None:
         if not config.aks.is_configured:
@@ -81,25 +87,23 @@ class K8sRunner:
             skip_push=inputs.skip_push,
         )
 
-        # 2) Fetch AKS credentials (idempotent — always merges into ~/.kube/config)
+        # 2) Fetch AKS credentials + ensure namespace
+        cluster.require("az")
+        cluster.require("kubectl")
+        cluster.require("helm")
         self._fetch_credentials()
+        self._ensure_namespace(namespace)
 
-        # 3) Render + apply manifests
-        manifest = render_all(
-            self._template_values(
-                inputs=inputs,
-                run_name=run_name,
-                namespace=namespace,
-                image_ref=build_result.image_ref,
-            ),
-            worker_count=max(0, inputs.profile.engine_instances - 1),
+        # 3) Helm install / upgrade
+        values = self._build_values(
+            inputs=inputs,
+            run_name=run_name,
+            namespace=namespace,
+            image_ref=build_result.image_ref,
         )
-        _LOGGER.info(
-            "Applying %d manifest doc(s) to namespace %s", manifest.count("\n---"), namespace
-        )
-        cluster.run(["kubectl", "apply", "-f", "-"], stdin=manifest)
+        self._helm_upgrade(run_name, namespace, values)
 
-        # 4) Optionally stream master logs until completion
+        # 4) Optionally stream master logs
         if not inputs.skip_logs and not inputs.web_ui:
             self._wait_and_stream(namespace, run_name)
         elif inputs.web_ui:
@@ -133,14 +137,13 @@ class K8sRunner:
             "subscriptionId": self._config.aks.subscription_id,
             "portalUrl": portal_url,
             "webUi": inputs.web_ui,
+            "ingress": self._config.aks.ingress.type,
         }
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
     def _fetch_credentials(self) -> None:
-        cluster.require("az")
-        cluster.require("kubectl")
         aks = self._config.aks
         _LOGGER.info("Fetching AKS credentials for %s", aks.cluster_name)
         cluster.run(
@@ -159,9 +162,51 @@ class K8sRunner:
             ]
         )
 
+    def _ensure_namespace(self, namespace: str) -> None:
+        cluster.run(
+            ["kubectl", "apply", "-f", "-"],
+            stdin=(
+                "apiVersion: v1\n"
+                "kind: Namespace\n"
+                "metadata:\n"
+                f"  name: {namespace}\n"
+            ),
+        )
+
+    def _helm_upgrade(
+        self, run_name: str, namespace: str, values: dict[str, Any]
+    ) -> None:
+        chart_path = _chart_path()
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".yaml", delete=False, encoding="utf-8"
+        ) as tmp:
+            yaml.safe_dump(values, tmp, sort_keys=False)
+            values_file = tmp.name
+        _LOGGER.info("Helm upgrade --install %s (namespace=%s)", run_name, namespace)
+        try:
+            cluster.run(
+                [
+                    "helm",
+                    "upgrade",
+                    "--install",
+                    run_name,
+                    str(chart_path),
+                    "--namespace",
+                    namespace,
+                    "--values",
+                    values_file,
+                    "--wait",
+                    "--timeout",
+                    "5m",
+                ]
+            )
+        finally:
+            try:
+                Path(values_file).unlink()
+            except OSError:
+                pass
+
     def _wait_and_stream(self, namespace: str, run_name: str) -> None:
-        # Wait briefly for the master pod to schedule, then stream until
-        # the Job completes. Workers are best-effort tailed via labels.
         master_label = f"osdu-perf.io/run-id={run_name},osdu-perf.io/role=master"
         cluster.run(
             [
@@ -209,47 +254,95 @@ class K8sRunner:
             check=False,
         )
 
-    def _template_values(
+    # ------------------------------------------------------------------
+    # Helm values rendering
+    # ------------------------------------------------------------------
+    def _build_values(
         self,
         *,
         inputs: K8sRunInputs,
         run_name: str,
         namespace: str,
         image_ref: str,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         aks = self._config.aks
+        repo, _, tag = image_ref.rpartition(":")
+        if not repo:
+            repo = image_ref
+            tag = "latest"
+
+        worker_count = max(0, inputs.profile.engine_instances - 1)
+        extra_labels = (
+            json.dumps(dict(inputs.labels), separators=(",", ":"))
+            if inputs.labels
+            else ""
+        )
+        ingress = aks.ingress
         return {
-            "RUN_NAME": run_name,
-            "NAMESPACE": namespace,
-            "SERVICE_ACCOUNT": aks.service_account,
-            "WORKLOAD_IDENTITY_CLIENT_ID": aks.workload_identity_client_id or "",
-            "IMAGE": image_ref,
-            "LOCUST_HOST": inputs.host,
-            "LOCUST_USERS": str(inputs.profile.users),
-            "LOCUST_SPAWN_RATE": str(inputs.profile.spawn_rate),
-            "LOCUST_RUN_TIME": str(inputs.profile.run_time),
-            "LOCUST_EXPECT_WORKERS": str(max(0, inputs.profile.engine_instances - 1)),
-            "ENGINE_INSTANCES": str(inputs.profile.engine_instances),
-            "WEB_UI": "true" if inputs.web_ui else "false",
-            "AZURE_CONFIG_PATH": inputs.azure_config_relpath or "",
-            "PARTITION": inputs.partition,
-            "APPID": inputs.app_id,
-            "SCENARIO": inputs.scenario,
-            "PROFILE_NAME": inputs.profile_name or "",
-            "TEST_NAME": inputs.test_name or "",
+            "runName": run_name,
+            "namespace": namespace,
+            "image": {
+                "repository": repo,
+                "tag": tag,
+                "pullPolicy": "Always",
+            },
+            "serviceAccount": {
+                "name": aks.service_account,
+                "create": False,
+                "workloadIdentityClientId": aks.workload_identity_client_id or "",
+            },
+            "mode": "webui" if inputs.web_ui else "headless",
+            "master": {"replicas": 1},
+            "workers": {"count": worker_count},
+            "env": {
+                "LOCUST_HOST": inputs.host,
+                "LOCUST_USERS": str(inputs.profile.users),
+                "LOCUST_SPAWN_RATE": str(inputs.profile.spawn_rate),
+                "LOCUST_RUN_TIME": str(inputs.profile.run_time),
+                "LOCUST_EXPECT_WORKERS": str(worker_count),
+                "PARTITION": inputs.partition,
+                "APPID": inputs.app_id,
+                "AZURE_LOAD_TEST": "true",
+                "OSDU_PERF_ENV": "AKS",
+                "TEST_SCENARIO": inputs.scenario,
+                "OSDU_PERF_PROFILE_NAME": inputs.profile_name or "",
+                "OSDU_PERF_PROFILE_USERS": str(inputs.profile.users),
+                "OSDU_PERF_PROFILE_SPAWN_RATE": str(inputs.profile.spawn_rate),
+                "OSDU_PERF_PROFILE_RUN_TIME": str(inputs.profile.run_time),
+                "OSDU_PERF_PROFILE_ENGINES": str(inputs.profile.engine_instances),
+                "OSDU_PERF_TEST_NAME": inputs.test_name or "",
+                "OSDU_PERF_TEST_RUN_ID": run_name,
+                "OSDU_PERF_AZURE_CONFIG": inputs.azure_config_relpath or "",
+                "WEB_UI": "true" if inputs.web_ui else "false",
+                "OSDU_PERF_EXTRA_LABELS": extra_labels,
+            },
+            "ingress": {
+                "type": ingress.type,
+                "host": ingress.host or "",
+                "pathPrefix": ingress.path_prefix,
+                "istio": {
+                    "gateway": ingress.istio_gateway,
+                    "timeout": ingress.istio_timeout,
+                },
+                "ingress": {
+                    "className": ingress.ingress_class_name or "",
+                    "annotations": dict(ingress.ingress_annotations),
+                    "tls": [],
+                },
+            },
         }
 
 
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
-def _build_run_name(inputs: K8sRunInputs) -> str:
-    """Compose a DNS-1123-safe run name (max 63 chars, lowercase a-z0-9-).
+def _chart_path() -> Path:
+    """Absolute path of the bundled Helm chart directory."""
+    return Path(str(files(_CHART_PKG).joinpath("Chart.yaml").parent))
 
-    The prefix already embeds the test name (see
-    :func:`osdu_perf.cli.commands._run_common.resolved_test_run_id_prefix`),
-    so we do not repeat it here.
-    """
+
+def _build_run_name(inputs: K8sRunInputs) -> str:
+    """Compose a DNS-1123-safe run name (max 50 chars, lowercase a-z0-9-)."""
     parts = [
         inputs.scenario,
         inputs.test_run_id_prefix,

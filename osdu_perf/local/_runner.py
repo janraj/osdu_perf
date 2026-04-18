@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -91,6 +92,8 @@ class LocalRunner:
 
 def _build_command(inputs: LocalRunInputs) -> list[str]:
     cmd = [
+        sys.executable,
+        "-m",
         "locust",
         "-f",
         str(inputs.locustfile),

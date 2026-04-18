@@ -58,6 +58,27 @@ class ContainerRegistryConfig:
 
 
 @dataclass(frozen=True)
+class AksIngress:
+    """Optional ingress config for exposing the Locust web UI.
+
+    ``type`` is one of:
+      * ``"none"`` — UI reachable only via ``kubectl port-forward`` (default).
+      * ``"istio"`` — the chart renders an Istio ``VirtualService``.
+      * ``"ingress"`` — the chart renders a plain k8s ``Ingress``.
+    """
+
+    type: str = "none"
+    host: str | None = None
+    path_prefix: str = "/locust"
+    # Istio-specific
+    istio_gateway: str = "istio-system/istio-gateway"
+    istio_timeout: str = "3600s"
+    # Ingress-specific
+    ingress_class_name: str | None = None
+    ingress_annotations: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class AksConfig:
     """AKS cluster coordinates (used by ``run k8s`` only).
 
@@ -75,6 +96,7 @@ class AksConfig:
     service_account: str = "osdu-perf-runner"
     workload_identity_client_id: str | None = None
     web_ui: bool = False
+    ingress: AksIngress = field(default_factory=AksIngress)
 
     @property
     def is_configured(self) -> bool:

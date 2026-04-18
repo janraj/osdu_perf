@@ -1,0 +1,28 @@
+{{- if eq (lower .Values.ingress.type) "istio" -}}
+{{- $fullName := include "osdu-perf.name" . -}}
+{{- $gateway := required "ingress.istio.gateway is required when ingress.type=istio" .Values.ingress.istio.gateway -}}
+{{- $host := required "ingress.host is required when ingress.type=istio" .Values.ingress.host -}}
+{{- $prefix := default "/locust" .Values.ingress.pathPrefix -}}
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ $fullName }}-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+spec:
+  gateways:
+    - {{ $gateway }}
+  hosts:
+    - {{ $host | quote }}
+  http:
+    - match:
+        - uri:
+            prefix: {{ $prefix | quote }}
+      route:
+        - destination:
+            host: {{ printf "%s-ui.%s.svc.cluster.local" $fullName .Values.namespace | quote }}
+            port:
+              number: 8089
+      timeout: {{ default "3600s" .Values.ingress.istio.timeout | quote }}
+{{- end }}

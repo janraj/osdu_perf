@@ -132,3 +132,44 @@ def test_pct_handles_empty_and_single_value() -> None:
     assert _events._pct([], 0.95) == 0.0
     assert _events._pct([42.0], 0.99) == 42.0
     assert _events._pct([1.0, 2.0, 3.0, 4.0, 5.0], 0.5) in (3.0, 3.0)
+
+
+def test_serialize_clears_state_and_merge_restores_it() -> None:
+    _reset_state()
+    _invoke(200, start_time=1_700_000_000.0)
+    _invoke(500, start_time=1_700_000_000.0)
+    _invoke(None, exception=RuntimeError("x"), start_time=1_700_000_010.0)
+
+    state = _events.serialize_state()
+    # serialize_state must drain everything
+    assert _events.status_counts_for("POST", "search_query") == {}
+    assert _events.drain_timeseries() == []
+
+    _events.merge_state(state)
+    counts = _events.status_counts_for("POST", "search_query")
+    assert counts["Count2xx"] == 1
+    assert counts["Count5xx"] == 1
+    assert counts["CountOther"] == 1
+    rows = _events.drain_timeseries()
+    assert sum(r["Requests"] for r in rows) == 3
+    assert sum(r["Failures"] for r in rows) == 1
+
+
+def test_merge_state_adds_to_existing_totals() -> None:
+    _reset_state()
+    _invoke(200)
+    state_from_worker = {
+        "status_counts": [["POST", "search_query", {"Count2xx": 4}]],
+        "status_histogram": [["POST", "search_query", {"200": 4}]],
+        "buckets": [],
+    }
+    _events.merge_state(state_from_worker)
+    assert _events.status_counts_for("POST", "search_query")["Count2xx"] == 5
+    assert _events.status_histogram_for("POST", "search_query")["200"] == 5
+
+
+def test_merge_state_tolerates_none_and_empty() -> None:
+    _reset_state()
+    _events.merge_state(None)
+    _events.merge_state({})
+    assert _events.status_counts_for("POST", "search_query") == {}

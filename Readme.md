@@ -462,6 +462,20 @@ aks:
     name: myacr                      # short ACR name (used for `az acr login`)
     login_server: myacr.azurecr.io   # optional; auto-derived from name
     image_repository: osdu-perf      # optional; default
+  # Optional: expose the Locust web UI outside the cluster.
+  # The bundled Helm chart owns the VirtualService / Ingress; you
+  # never hand-apply YAML. Leave `type: none` (the default) if you
+  # plan to drive the UI via `kubectl port-forward` instead.
+  ingress:
+    type: istio                      # "none" | "istio" | "ingress"
+    host: perf.example.com
+    path_prefix: /locust             # UI served at https://<host><path_prefix>/
+    istio:
+      gateway: istio-system/istio-gateway
+      timeout: 3600s
+    # ingress:                       # only used when type == "ingress"
+    #   class_name: nginx
+    #   annotations: {}
 ```
 
 **Cluster-side prerequisites (one-time):**
@@ -475,12 +489,20 @@ aks:
      entitlement flow as the ALT identity.
 3. A federated credential on the UAMI bound to
    `system:serviceaccount:<namespace>:<service_account>`.
-4. `docker`, `az`, and `kubectl` on the operator's PATH.
+4. `docker`, `az`, `kubectl`, and `helm` (v3+) on the operator's PATH.
+5. (For `ingress.type: istio`) an Istio Gateway already exists and
+   matches the host you configure. The chart only creates the
+   `VirtualService` binding it to your run.
 
 The runner takes care of everything else: builds + pushes the image,
-runs `az aks get-credentials`, creates the namespace + ServiceAccount +
-ConfigMap + master Job + Service + worker Job, then streams master
-logs until the run completes.
+runs `az aks get-credentials`, then issues a single
+`helm upgrade --install <run-name> <bundled-chart>` that creates the
+ServiceAccount (if requested), ConfigMap, master Service + Deployment
+(web-UI) or Job (headless), worker Deployment/Job, and — when
+`aks.ingress.type` is `istio` or `ingress` — the resource that
+exposes the web UI outside the cluster. There are **no hand-managed
+YAMLs**; everything lives in the chart shipped with the wheel
+(`osdu_perf/k8s/chart/`).
 
 #### Web-UI mode (`--web-ui`)
 
@@ -494,9 +516,11 @@ kubectl port-forward -n perf svc/<run-name>-master 8089:8089
 # then open http://localhost:8089
 ```
 
-For multi-tenant clusters, expose the master service behind an Istio
-VirtualService at a sub-path and pass `--web-base-path=/locust` to
-Locust (handled automatically when `web_ui: true`).
+For multi-tenant clusters, set `aks.ingress.type: istio` (or
+`ingress`) plus `aks.ingress.host` / `path_prefix` in
+`azure_config.yaml`. The chart creates the `VirtualService` (or
+`Ingress`) and the master auto-picks up `--web-base-path=<path_prefix>`
+— no manual routing YAML required.
 
 Each click of **Start swarming** in the UI:
 

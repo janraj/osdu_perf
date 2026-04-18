@@ -218,12 +218,34 @@ def _on_test_start(environment, **_kwargs):
     PerformanceUser._context = None
     PerformanceUser._banner_printed = False
 
+    # In distributed mode the master runs no Users, so without an
+    # explicit build here PerformanceUser._context would stay None and
+    # _on_test_stop below would silently skip Kusto ingestion. Build it
+    # up-front on everything except workers (which build lazily when
+    # the first User instance spawns).
+    runner = getattr(environment, "runner", None)
+    runner_cls = type(runner).__name__ if runner is not None else ""
+    if runner_cls != "WorkerRunner":
+        PerformanceUser._context = PerformanceUser._build_context(environment)
+        if not PerformanceUser._banner_printed:
+            PerformanceUser._print_banner(environment)
+            PerformanceUser._banner_printed = True
+
 
 @events.test_stop.add_listener
 def _on_test_stop(environment, **_kwargs):
     ctx = PerformanceUser._context
     if ctx is None:
         _LOGGER.debug("test_stop: no RequestContext — nothing to ingest")
+        return
+    # In distributed mode, every worker fires test_stop with partial
+    # stats and the master fires it with aggregated stats. Ingest only
+    # on the master (or local/standalone) so we get exactly one summary
+    # row per run.
+    runner = getattr(environment, "runner", None)
+    runner_cls = type(runner).__name__ if runner is not None else ""
+    if runner_cls == "WorkerRunner":
+        _LOGGER.debug("test_stop: worker runner — skipping ingestion (master will ingest)")
         return
     kusto_cfg = ctx.config.kusto_export
     if not kusto_cfg.is_configured:
@@ -237,6 +259,25 @@ def _on_test_stop(environment, **_kwargs):
         ingestor.ingest(collect_payload(environment, ctx))
     except Exception as exc:  # pragma: no cover - best-effort
         _LOGGER.error("Kusto ingestion failed: %s", exc)
+
+
+# ------------------------------------------------------------------
+# Distributed mode: forward worker-local request aggregates to master.
+# Locust fires `request` only in the process that made the call, so in
+# distributed mode the master has no per-endpoint status histogram or
+# time-series data unless workers forward it. We piggyback on Locust's
+# built-in 3s stats-report channel.
+# ------------------------------------------------------------------
+@events.report_to_master.add_listener
+def _on_report_to_master(client_id, data, **_kwargs):  # noqa: ARG001
+    data["osdu_perf_state"] = _events.serialize_state()
+
+
+@events.worker_report.add_listener
+def _on_worker_report(client_id, data, **_kwargs):  # noqa: ARG001
+    state = data.pop("osdu_perf_state", None) if isinstance(data, dict) else None
+    if state:
+        _events.merge_state(state)
 
 
 __all__ = ["PerformanceUser"]

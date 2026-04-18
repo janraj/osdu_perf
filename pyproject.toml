@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osdu_perf"
-version = "2.1.0"
+version = "2.2.1"
 authors = [
     {name = "Janraj CJ", email = "janrajcj@microsoft.com"},
 ]
@@ -81,6 +81,10 @@ osdu_perf = [
     "scaffolding/templates/*.tpl",
     "k8s/templates/*",
     "k8s/templates/.dockerignore",
+    "k8s/chart/Chart.yaml",
+    "k8s/chart/values.yaml",
+    "k8s/chart/.helmignore",
+    "k8s/chart/templates/*",
 ]
 
 [tool.black]

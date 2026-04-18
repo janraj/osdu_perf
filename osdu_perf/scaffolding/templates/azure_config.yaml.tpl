@@ -27,6 +27,20 @@
 #     name: ""                      # short ACR name (used for `az acr login`)
 #     login_server: ""              # optional; auto-derived to <name>.azurecr.io
 #     image_repository: "osdu-perf" # path within the registry
+#   # ------------------------------------------------------------------
+#   # Optional: expose the Locust web UI outside the cluster (web_ui=true)
+#   # The Helm chart creates the matching ingress resource for you.
+#   # ------------------------------------------------------------------
+#   ingress:
+#     type: "none"                  # "none" | "istio" | "ingress"
+#     host: ""                      # e.g. "mythosflex1.oep.ppe.azure-int.net"
+#     path_prefix: "/locust"        # UI is served at https://<host><path_prefix>/
+#     istio:
+#       gateway: "istio-system/istio-gateway"   # <ns>/<name> of an existing Gateway
+#       timeout: "3600s"
+#     ingress:                      # only used when type == "ingress"
+#       class_name: ""              # e.g. "nginx"
+#       annotations: {}             # map of annotation -> value
 
 # kusto_export:
 #   cluster_uri: ""     # EITHER cluster_uri OR ingest_uri (the other is derived)

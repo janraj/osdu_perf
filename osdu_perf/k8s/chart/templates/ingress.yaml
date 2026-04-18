@@ -1,0 +1,35 @@
+{{- if eq (lower .Values.ingress.type) "ingress" -}}
+{{- $fullName := include "osdu-perf.name" . -}}
+{{- $host := required "ingress.host is required when ingress.type=ingress" .Values.ingress.host -}}
+{{- $prefix := default "/locust" .Values.ingress.pathPrefix -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+  {{- with .Values.ingress.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: {{ $prefix | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-ui
+                port:
+                  number: 8089
+{{- end }}

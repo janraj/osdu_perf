@@ -1,0 +1,13 @@
+apiVersion: v2
+name: osdu-perf
+description: Distributed Locust load test for OSDU APIs, managed by osdu_perf.
+type: application
+version: 0.1.0
+appVersion: "2.2.0"
+keywords:
+  - osdu
+  - locust
+  - load-testing
+  - aks
+maintainers:
+  - name: osdu_perf

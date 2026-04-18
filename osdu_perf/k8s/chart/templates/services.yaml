@@ -1,0 +1,40 @@
+{{/* Headless service used by workers to rendezvous with the master. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "osdu-perf.name" . }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+    osdu-perf.io/role: master
+spec:
+  clusterIP: None
+  selector:
+    {{- include "osdu-perf.masterSelector" . | nindent 4 }}
+  ports:
+    - name: rpc
+      port: 5557
+      targetPort: 5557
+      protocol: TCP
+    - name: web
+      port: 8089
+      targetPort: 8089
+      protocol: TCP
+---
+{{/* ClusterIP service fronting the web UI; used by Ingress / VirtualService. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "osdu-perf.name" . }}-ui
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "osdu-perf.masterSelector" . | nindent 4 }}
+  ports:
+    - name: web
+      port: 8089
+      targetPort: 8089
+      protocol: TCP

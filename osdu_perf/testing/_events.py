@@ -146,6 +146,63 @@ def reset_state() -> None:
         _bucket_stats.clear()
 
 
+def serialize_state() -> dict[str, Any]:
+    """Snapshot all accumulators into a JSON-safe dict and clear them.
+
+    Called on workers by the ``report_to_master`` listener to forward
+    per-request aggregates (which only fire on workers in distributed
+    mode) up to the master between 3-second stats reports.
+    """
+    with _LOCK:
+        state = {
+            "status_counts": [
+                [method, name, dict(counts)]
+                for (method, name), counts in _status_counts.items()
+            ],
+            "status_histogram": [
+                [method, name, dict(hist)]
+                for (method, name), hist in _status_histogram.items()
+            ],
+            "buckets": [
+                [bucket_start, method, name, acc.requests, acc.failures, list(acc.latencies)]
+                for (bucket_start, method, name), acc in _bucket_stats.items()
+            ],
+        }
+        _status_counts.clear()
+        _status_histogram.clear()
+        _bucket_stats.clear()
+    return state
+
+
+def merge_state(state: dict[str, Any] | None) -> None:
+    """Merge a worker-produced state dict (from :func:`serialize_state`)
+    into this process's accumulators. Called on master by the
+    ``worker_report`` listener.
+    """
+    if not state:
+        return
+    with _LOCK:
+        for method, name, counts in state.get("status_counts", []):
+            dest = _status_counts[(str(method), str(name))]
+            for k, v in counts.items():
+                dest[k] = dest.get(k, 0) + int(v)
+        for method, name, hist in state.get("status_histogram", []):
+            dest = _status_histogram[(str(method), str(name))]
+            for k, v in hist.items():
+                dest[str(k)] = dest.get(str(k), 0) + int(v)
+        for bucket_start, method, name, requests, failures, latencies in state.get(
+            "buckets", []
+        ):
+            key = (int(bucket_start), str(method), str(name))
+            acc = _bucket_stats.get(key)
+            if acc is None:
+                acc = _BucketAccumulator()
+                _bucket_stats[key] = acc
+            acc.requests += int(requests)
+            acc.failures += int(failures)
+            acc.latencies.extend(float(x) for x in latencies)
+
+
 def drain_timeseries(now_epoch: float | None = None) -> list[dict[str, Any]]:
     """Return per-bucket roll-ups keyed by (BucketStart, Method, Name).
 
@@ -192,4 +249,7 @@ __all__ = [
     "status_counts_for",
     "status_histogram_for",
     "drain_timeseries",
+    "serialize_state",
+    "merge_state",
+    "reset_state",
 ]

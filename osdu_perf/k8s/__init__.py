@@ -3,10 +3,9 @@
 Subsystem layout:
 
 * :mod:`builder` — build the test image and push to Azure Container Registry.
-* :mod:`manifests` — render ServiceAccount, Service, and master/worker
-  Deployment manifests from string templates.
-* :mod:`cluster` — thin ``kubectl`` and ``az`` subprocess wrappers.
-* :mod:`runner` — orchestrate end-to-end: build → push → apply → wait → logs.
+* :mod:`cluster` — thin ``kubectl``, ``helm``, and ``az`` subprocess wrappers.
+* :mod:`runner` — orchestrate end-to-end: build → push → helm upgrade → wait → logs.
+* :mod:`chart` — bundled Helm chart (not imported at runtime; shipped as package data).
 """
 
 from .runner import K8sRunInputs, K8sRunner

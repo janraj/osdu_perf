@@ -1,0 +1,92 @@
+{{- $isWebUi := eq (include "osdu-perf.isWebUi" .) "true" -}}
+{{- $fullName := include "osdu-perf.name" . -}}
+{{- $image := include "osdu-perf.image" . -}}
+{{- $basePath := "" -}}
+{{- if and $isWebUi (ne (lower .Values.ingress.type) "none") -}}
+  {{- $basePath = default "/locust" .Values.ingress.pathPrefix -}}
+{{- end -}}
+
+{{- if $isWebUi }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+    osdu-perf.io/role: master
+spec:
+  replicas: {{ .Values.master.replicas | default 1 }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "osdu-perf.masterSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-perf.labels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+        osdu-perf.io/role: master
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: locust
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
+          envFrom:
+            - configMapRef:
+                name: {{ $fullName }}-env
+          env:
+            - name: LOCUST_ROLE
+              value: master
+            {{- if $basePath }}
+            - name: LOCUST_WEB_BASE_PATH
+              value: {{ $basePath | quote }}
+            {{- end }}
+          ports:
+            - containerPort: 5557
+              name: rpc
+            - containerPort: 8089
+              name: web
+          resources:
+            {{- toYaml .Values.master.resources | nindent 12 }}
+{{- else }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullName }}-master
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "osdu-perf.labels" . | nindent 4 }}
+    osdu-perf.io/role: master
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "osdu-perf.labels" . | nindent 8 }}
+        azure.workload.identity/use: "true"
+        osdu-perf.io/role: master
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      restartPolicy: Never
+      containers:
+        - name: locust
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "Always" }}
+          envFrom:
+            - configMapRef:
+                name: {{ $fullName }}-env
+          env:
+            - name: LOCUST_ROLE
+              value: master
+          ports:
+            - containerPort: 5557
+              name: rpc
+            - containerPort: 8089
+              name: web
+          resources:
+            {{- toYaml .Values.master.resources | nindent 12 }}
+{{- end }}
