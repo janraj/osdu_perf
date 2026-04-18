@@ -7,7 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from ...auth import TokenProvider
-from ...config import load_config
+from ...config import load_config, load_from_paths
+from ...config._loader import _discover  # noqa: PLC2701
 from ...errors import ConfigError
 from ...local import LocalRunInputs, LocalRunner, build_run_id
 from ._run_common import (
@@ -20,7 +21,17 @@ from ._run_common import (
 
 def run(args: argparse.Namespace) -> int:
     project_dir = Path(args.directory).resolve()
-    config = load_config(project_dir)
+    azure_config_arg = getattr(args, "azure_config", None)
+    if azure_config_arg:
+        azure_path = Path(azure_config_arg)
+        if not azure_path.is_absolute():
+            azure_path = (project_dir / azure_path).resolve()
+        if not azure_path.exists():
+            raise ConfigError(f"--azure-config file not found: {azure_path}")
+        _, test_path = _discover(project_dir)
+        config = load_from_paths(azure_path, test_path)
+    else:
+        config = load_config(project_dir)
 
     env = config.osdu_env
     host = args.host or env.host
@@ -50,6 +61,7 @@ def run(args: argparse.Namespace) -> int:
         test_run_id_prefix=prefix,
         extra_labels={str(k): str(v) for k, v in extra_labels.items()},
         test_name=test_name,
+        profile_name=resolved.profile_name,
     )
     run_id = build_run_id(partial_inputs)
     inputs = replace(partial_inputs, run_id=run_id)

@@ -86,9 +86,7 @@ class EntitlementProvisioner:
         payload = resp.json()
         app_id = payload.get("appId")
         if not app_id:
-            raise AzureResourceError(
-                f"No appId found for principal '{self._principal_id}'"
-            )
+            raise AzureResourceError(f"No appId found for principal '{self._principal_id}'")
         _LOGGER.info("Resolved appId %s for principal %s", app_id, self._principal_id)
         return app_id
 

@@ -17,10 +17,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"  partition: {env.partition}")
     print(f"  app_id:    {env.app_id}")
     print(f"  profiles:  {', '.join(sorted(config.profiles)) or '<none>'}")
-    print(
-        "  scenario defaults: "
-        f"{', '.join(sorted(config.scenario_defaults)) or '<none>'}"
-    )
+    print(f"  scenario defaults: {', '.join(sorted(config.scenario_defaults)) or '<none>'}")
     rs = config.run_scenario
     if rs.scenario:
         print(f"  run_scenario: {rs.scenario} (profile={rs.profile or '-'})")

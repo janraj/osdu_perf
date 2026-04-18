@@ -26,7 +26,7 @@ Verify:
 
 ```bash
 osdu_perf version
-# 2.0.0
+# 2.1.0
 ```
 
 ### 2. Scaffold a project
@@ -249,6 +249,17 @@ kusto_export:
   database: "osdu-perf"
 ```
 
+Provision the Kusto tables once per database:
+
+```bash
+osdu_perf setup kusto                 # create/update the V2 tables
+osdu_perf setup kusto --print-only    # dry run -- print the KQL
+```
+
+The command is idempotent (`.create-merge` + `.alter-merge`), so it is
+safe to re-run after upgrading `osdu_perf`. See
+[V2 telemetry schema](#v2-telemetry-schema) for the columns emitted.
+
 ### `config/test_config.yaml` — everything about the test
 
 ```yaml
@@ -416,6 +427,122 @@ osdu_perf run azure \
 and **reuses** it on every invocation — runs are listed under that
 single test, keeping the ALT UI tidy.
 
+### `osdu_perf run k8s`
+
+Build the test project as a container image, push it to Azure
+Container Registry, then deploy a distributed Locust run (1 master +
+N-1 workers, where N = `engine_instances`) on AKS using Workload
+Identity for OSDU + Kusto auth.
+
+```bash
+osdu_perf run k8s \
+  [--scenario=<name>]          \
+  [--profile=<name>]           \
+  [--users=N --spawn-rate=N --run-time=DURATION --engine-instances=N] \
+  [--test-name=NAME --test-run-id-prefix=TAG]                         \
+  [--label KEY=VALUE]          \  # repeatable
+  [--azure-config=PATH]        \  # alt config file (per-cluster)
+  [--namespace=perf]           \  # overrides aks.namespace
+  [--image-tag=TAG]            \  # default: derived from run name
+  [--no-build] [--no-push] [--no-logs] [--web-ui]
+```
+
+**Required `azure_config.yaml` blocks:**
+
+```yaml
+aks:
+  subscription_id: <sub-guid>
+  resource_group: <rg>
+  cluster_name: <aks-name>
+  namespace: perf                    # optional; default
+  service_account: osdu-perf-runner  # optional; default
+  workload_identity_client_id: <uami-or-app-client-id>
+  web_ui: false                      # optional; CLI --web-ui overrides
+  container_registry:
+    name: myacr                      # short ACR name (used for `az acr login`)
+    login_server: myacr.azurecr.io   # optional; auto-derived from name
+    image_repository: osdu-perf      # optional; default
+```
+
+**Cluster-side prerequisites (one-time):**
+
+1. AKS cluster has Workload Identity + OIDC issuer enabled.
+2. A user-assigned managed identity (UAMI) with:
+   * `AcrPull` on the registry,
+   * `Database User` on the Kusto database (or `Database Admin` if you
+     want it to call `osdu_perf setup kusto`),
+   * the OSDU app role(s) the test calls — assigned via the same
+     entitlement flow as the ALT identity.
+3. A federated credential on the UAMI bound to
+   `system:serviceaccount:<namespace>:<service_account>`.
+4. `docker`, `az`, and `kubectl` on the operator's PATH.
+
+The runner takes care of everything else: builds + pushes the image,
+runs `az aks get-credentials`, creates the namespace + ServiceAccount +
+ConfigMap + master Job + Service + worker Job, then streams master
+logs until the run completes.
+
+#### Web-UI mode (`--web-ui`)
+
+`--web-ui` keeps the master pod alive serving Locust's web interface
+on port 8089 (no `--headless`, no `--run-time`). Workers attach as
+usual; you drive runs from the browser.
+
+```bash
+osdu_perf run k8s --web-ui --engine-instances 2 --no-logs
+kubectl port-forward -n perf svc/<run-name>-master 8089:8089
+# then open http://localhost:8089
+```
+
+For multi-tenant clusters, expose the master service behind an Istio
+VirtualService at a sub-path and pass `--web-base-path=/locust` to
+Locust (handled automatically when `web_ui: true`).
+
+Each click of **Start swarming** in the UI:
+
+1. Resets per-endpoint accumulators across all workers.
+2. Generates a fresh `<test_name>-<prefix>-<UTCts>` run id.
+3. Ingests a separate Kusto row at test-stop.
+
+The swarm form auto-renders two custom fields (under
+**Custom parameters**), backed by the env vars baked into the
+ConfigMap:
+
+| UI field                  | Env var (default)                    |
+| ------------------------- | ------------------------------------ |
+| `Osdu test name`          | `OSDU_PERF_TEST_NAME`                |
+| `Osdu test run id prefix` | `OSDU_PERF_TEST_RUN_ID_PREFIX`       |
+
+Change either, click **Start swarming**, and the next run's
+`TestRunId` reflects the new values without restarting any pod.
+
+#### Multi-cluster — `--azure-config`
+
+`--azure-config PATH` lets one project hold per-cluster configs. The
+chosen file is bundled into the image and read by the pod via
+`OSDU_PERF_AZURE_CONFIG`.
+
+```bash
+osdu_perf run k8s --azure-config config/azure_config.yaml      --host https://east.example
+osdu_perf run k8s --azure-config config/azure_config_aks2.yaml --host https://west.example \
+  --no-build --no-push --image-tag <prev-tag>
+```
+
+### `osdu_perf setup kusto`
+
+Provisions (or upgrades) the V2 telemetry tables on the Kusto cluster
+configured in `config/azure_config.yaml`.
+
+```bash
+osdu_perf setup kusto                            # apply DDL
+osdu_perf setup kusto --print-only               # dry run
+osdu_perf setup kusto --cluster-uri ... --database ...  # override
+```
+
+All commands are idempotent (`.create-merge` + `.alter-merge` + mapping
+`create-or-alter`), so this can be run repeatedly after upgrading
+`osdu_perf` to widen the schema in place.
+
 ### `osdu_perf version`
 
 Prints the installed version.
@@ -424,27 +551,34 @@ Prints the installed version.
 
 ## CLI flag matrix
 
-Quick lookup. `L` = `run local`, `A` = `run azure`, `—` = ignored.
+Quick lookup. `L` = `run local`, `A` = `run azure`, `K` = `run k8s`, `—` = ignored.
 
-| Flag                       | L | A | Default                              | Purpose                                                        |
-| -------------------------- | - | - | ------------------------------------ | -------------------------------------------------------------- |
-| `--scenario NAME`          | ✓ | ✓ | `run_scenario.scenario`              | Pick which `perf_<name>_test.py` runs                          |
-| `--profile NAME`           | ✓ | ✓ | `scenario_defaults.<s>.profile`      | Load shape from `profiles:`                                    |
-| `--users N`                | ✓ | ✓ | profile                              | Override `users` only                                          |
-| `--spawn-rate N`           | ✓ | ✓ | profile                              | Override `spawn_rate` only                                     |
-| `--run-time DURATION`      | ✓ | ✓ | profile                              | Override `run_time` (`90s`, `5m`, `1h`)                        |
-| `--engine-instances N`     | — | ✓ | profile                              | ALT parallel engines (ignored locally)                         |
-| `--test-name NAME`         | — | ✓ | `run_scenario.test_name` → scenario  | Stable ALT test-id component (`<scenario>_<test_name>`)        |
-| `--test-run-id-prefix TAG` | ✓ | ✓ | `test_run_id_prefix` (default `perf`)| Prefix token inside the generated run id                       |
-| `--label KEY=VALUE`        | ✓ | ✓ | (none, repeatable)                   | Extra labels merged on top of resolved labels                  |
-| `--load-test-name NAME`    | — | ✓ | `azure_load_test.name`               | Override which ALT resource to target                          |
-| `--host URL`               | ✓ | ✓ | `osdu_environment.host`              | Override OSDU host                                             |
-| `--partition ID`           | ✓ | ✓ | `osdu_environment.partition`         | Override OSDU data partition                                   |
-| `--app-id GUID`            | ✓ | ✓ | `osdu_environment.app_id`            | Override AAD app id (`aud` claim)                              |
-| `--bearer-token TOKEN`     | ✓ | ✓ | `ADME_BEARER_TOKEN` env var          | Skip `az` and pass a pre-acquired token                        |
-| `--directory PATH`         | ✓ | ✓ | `.`                                  | Project root (where config/, locustfile.py live)               |
-| `--headless`               | ✓ | — | false                                | Locust without web UI                                          |
-| `-v` / `--verbose`         | ✓ | ✓ | false                                | Debug logging + full tracebacks                                |
+| Flag                       | L | A | K | Default                              | Purpose                                                        |
+| -------------------------- | - | - | - | ------------------------------------ | -------------------------------------------------------------- |
+| `--scenario NAME`          | ✓ | ✓ | ✓ | `run_scenario.scenario`              | Pick which `perf_<name>_test.py` runs                          |
+| `--profile NAME`           | ✓ | ✓ | ✓ | `scenario_defaults.<s>.profile`      | Load shape from `profiles:`                                    |
+| `--users N`                | ✓ | ✓ | ✓ | profile                              | Override `users` only                                          |
+| `--spawn-rate N`           | ✓ | ✓ | ✓ | profile                              | Override `spawn_rate` only                                     |
+| `--run-time DURATION`      | ✓ | ✓ | ✓ | profile                              | Override `run_time` (`90s`, `5m`, `1h`)                        |
+| `--engine-instances N`     | — | ✓ | ✓ | profile                              | ALT engines / k8s worker pods (ignored locally)                |
+| `--test-name NAME`         | ✓ | ✓ | ✓ | `run_scenario.test_name` → scenario  | ALT test-id component / k8s `OSDU_PERF_TEST_NAME`              |
+| `--test-run-id-prefix TAG` | ✓ | ✓ | ✓ | `test_run_id_prefix` (default `perf`)| Prefix token inside the generated run id                       |
+| `--label KEY=VALUE`        | ✓ | ✓ | ✓ | (none, repeatable)                   | Extra labels merged on top of resolved labels                  |
+| `--azure-config PATH`      | ✓ | ✓ | ✓ | `config/azure_config.yaml`           | Use a non-default azure config (per-cluster)                   |
+| `--load-test-name NAME`    | — | ✓ | — | `azure_load_test.name`               | Override which ALT resource to target                          |
+| `--namespace NAME`         | — | — | ✓ | `aks.namespace` (default `perf`)     | Override target k8s namespace                                  |
+| `--image-tag TAG`          | — | — | ✓ | derived from run name                | Override container image tag                                   |
+| `--no-build`               | — | — | ✓ | false                                | Skip docker build (reuse existing image in ACR)                |
+| `--no-push`                | — | — | ✓ | false                                | Build but do not push to ACR                                   |
+| `--no-logs`                | — | — | ✓ | false                                | Apply manifests then exit; do not stream logs                  |
+| `--web-ui`                 | — | — | ✓ | `aks.web_ui` (default false)         | Keep master alive; expose Locust web UI on 8089                |
+| `--host URL`               | ✓ | ✓ | ✓ | `osdu_environment.host`              | Override OSDU host                                             |
+| `--partition ID`           | ✓ | ✓ | ✓ | `osdu_environment.partition`         | Override OSDU data partition                                   |
+| `--app-id GUID`            | ✓ | ✓ | ✓ | `osdu_environment.app_id`            | Override AAD app id (`aud` claim)                              |
+| `--bearer-token TOKEN`     | ✓ | ✓ | ✓ | `ADME_BEARER_TOKEN` env var          | Skip `az` and pass a pre-acquired token                        |
+| `--directory PATH`         | ✓ | ✓ | ✓ | `.`                                  | Project root (where config/, locustfile.py live)               |
+| `--headless`               | ✓ | — | — | false                                | Locust without web UI                                          |
+| `-v` / `--verbose`         | ✓ | ✓ | ✓ | false                                | Debug logging + full tracebacks                                |
 
 **Precedence in every case**: CLI flag > `run_scenario.*` (when it
 supplied the scenario) > `scenario_defaults.<scenario>.*` > top-level
@@ -586,6 +720,9 @@ complement) CLI flags.
 | -------------------------------- | ------------------ | ---------------------------------------------------------- |
 | `ADME_BEARER_TOKEN`              | `TokenProvider`    | Bypass `az`; use this token verbatim                       |
 | `TEST_RUN_ID` / `TEST_RUN_ID_NAME` | Locust runtime    | Force a specific run id (overrides the generated one)      |
+| `OSDU_PERF_TEST_NAME`            | `RequestContext`   | Test name component of the generated run id (UI-editable)  |
+| `OSDU_PERF_TEST_RUN_ID_PREFIX`   | `RequestContext`   | Prefix component of the generated run id (UI-editable)     |
+| `OSDU_PERF_AZURE_CONFIG`         | `load_config()`    | Path to `azure_config.yaml` to load (set by `--azure-config`) |
 | `OSDU_PERF_EXTRA_LABELS`         | Locust runtime     | JSON blob; merged on top of resolved labels (set by CLI)   |
 | `LOCUST_HOST`                    | Locust             | Target URL (set by the framework)                          |
 | `LOCUST_USERS` / `LOCUST_SPAWN_RATE` / `LOCUST_RUN_TIME` | Locust | Load shape (set by the framework from the profile)         |
@@ -610,10 +747,12 @@ complement) CLI flags.
 
 * **Test run id** (unique per invocation):
   ```
-  <scenario>_<test_name>_<test_run_id_prefix>_<YYYYMMDDHHMMSS>
+  <test_name>-<test_run_id_prefix>-<YYYYMMDDHHMMSS>
   ```
-  `test_run_id_prefix` defaults to `perf` and can be changed globally
-  in `test_config.yaml`:
+  Generation is idempotent: if `test_run_id_prefix` already starts
+  with `<test_name>-` it is not duplicated. `test_run_id_prefix`
+  defaults to `perf` and can be changed globally in
+  `test_config.yaml`:
 
   ```yaml
   test_run_id_prefix: "smoke"
@@ -644,6 +783,75 @@ handy when the CI system already has a build id you want to reuse.
 
 ---
 
+## V2 telemetry schema
+
+`osdu_perf setup kusto` provisions four tables. All four share a common
+envelope (test identity + load shape) so dashboards can filter/join by
+any of these columns without parsing the `Labels` dynamic bag:
+
+| Column | Type | Source |
+| --- | --- | --- |
+| `TestRunId` | string | deterministic `<scenario>_<test_name>_<prefix>_<utc>` |
+| `ADME` | string | hostname from `osdu_environment.host` |
+| `Partition` | string | `osdu_environment.partition` |
+| `TestEnv` | string | `Local` or `Azure Load Test` |
+| `TestScenario` | string | scenario name |
+| `TestName` | string | `run_scenario.test_name` (falls back to scenario) |
+| `ProfileName` | string | profile key, e.g. `U5_T60S` |
+| `Users` / `SpawnRate` / `RunTimeSeconds` / `EngineInstances` | numeric | profile fields |
+| `EngineId` | string | ALT engine index or empty for local |
+| `ALTTestRunId` | string | Azure Load Testing run id (Azure only) |
+| `Labels` | dynamic | merge of `labels` + `scenario_defaults.metadata` |
+| `Timestamp` | datetime | collection time (UTC) |
+
+Per-table columns:
+
+* **`LocustMetricsV2`** — one row per endpoint. Adds `Service`, `Name`,
+  `Method`, request/failure counts and rates, full percentile set
+  (p50/p60/p70/p75/p80/p90/p95/p98/p99/p999), `StatusCodes` histogram,
+  `Count2xx`..`Count5xx` / `CountOther`, `Throughput`,
+  `TestStartTime`, `LastRequestTimestamp`.
+* **`LocustTestSummaryV2`** — one row per run with aggregate totals and
+  `TestStartTime` / `TestEndTime` / `TestDurationSeconds`.
+* **`LocustExceptionsV2`** — one row per distinct error. Includes
+  `Error`, `ErrorMessage`, `Traceback` (capped at 4 KB), `Occurrences`,
+  `FirstSeen`, `LastSeen`.
+* **`LocustRequestTimeSeriesV2`** — one row per 10-second bucket per
+  endpoint with `BucketStart`, `Requests`, `Failures`, `RequestsPerSec`,
+  `ResponseTime50th/95th/99th`. Useful for plotting RPS / latency over
+  the duration of a run.
+
+Set `service_name = "search"` (or similar) on your `BaseService`
+subclass so the `Service` column is populated regardless of how
+Locust names the request:
+
+```python
+class SearchQueryService(BaseService):
+    service_name = "search"
+    ...
+```
+
+### Useful queries
+
+```kql
+// Latest run per scenario
+LocustTestSummaryV2
+| summarize arg_max(Timestamp, *) by TestScenario, ProfileName
+
+// p95 latency trend for a given profile
+LocustMetricsV2
+| where ProfileName == "U5_T60S"
+| summarize avg(ResponseTime95th) by bin(Timestamp, 1h), Service
+
+// RPS curve for one run
+LocustRequestTimeSeriesV2
+| where TestRunId == "<run-id>"
+| order by BucketStart asc
+| project BucketStart, RequestsPerSec, ResponseTime95th
+```
+
+---
+
 ## Authentication
 
 `TokenProvider` resolves an OSDU bearer token in this order:
@@ -663,7 +871,7 @@ Tokens are cached per `app_id` within a process.
 
 ```python
 from osdu_perf import (
-    __version__,       # "2.0.0"
+    __version__,       # "2.1.0"
     AppConfig,         # typed config tree
     load_config,       # walks cwd → parents for config/*.yaml
     BaseService,       # subclass this to define a test
@@ -794,7 +1002,8 @@ extending an osdu_perf project.
 * All library errors inherit from `osdu_perf.errors.OsduPerfError`.
   CLI wrappers should catch this base class.
 * Kusto table names (`LocustMetricsV2`, `LocustExceptionsV2`,
-  `LocustTestSummaryV2`) are stable — do **not** rename them.
+  `LocustTestSummaryV2`, `LocustRequestTimeSeriesV2`) are stable — do
+  **not** rename them.
 
 ### Safe, idempotent commands
 

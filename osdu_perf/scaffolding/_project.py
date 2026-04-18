@@ -47,8 +47,7 @@ class Scaffolder:
     def create(self, sample_name: str = "search_query") -> Path:
         if sample_name not in SAMPLES:
             raise ScaffoldError(
-                f"Unknown sample '{sample_name}'. Available: "
-                f"{', '.join(sorted(SAMPLES))}"
+                f"Unknown sample '{sample_name}'. Available: {', '.join(sorted(SAMPLES))}"
             )
         sample = SAMPLES[sample_name]
         self._root.mkdir(parents=True, exist_ok=True)
@@ -62,17 +61,20 @@ class Scaffolder:
             "SCENARIO_NAME": sample.name,
         }
 
-        self._write("azure_config.yaml.tpl", self._root / "config" / "azure_config.yaml", substitutions)
-        self._write("test_config.yaml.tpl", self._root / "config" / "test_config.yaml", substitutions)
+        self._write(
+            "azure_config.yaml.tpl", self._root / "config" / "azure_config.yaml", substitutions
+        )
+        self._write(
+            "test_config.yaml.tpl", self._root / "config" / "test_config.yaml", substitutions
+        )
         self._write("locustfile.py.tpl", self._root / "locustfile.py", substitutions)
         perf_template = f"perf_{sample.name}_test.py.tpl"
         if not _template_exists(perf_template):
-            raise ScaffoldError(
-                f"Missing template '{perf_template}' for sample '{sample.name}'."
-            )
+            raise ScaffoldError(f"Missing template '{perf_template}' for sample '{sample.name}'.")
         self._write(perf_template, self._root / f"perf_{sample.name}_test.py", substitutions)
         self._write("requirements.txt.tpl", self._root / "requirements.txt", substitutions)
         self._write("README.md.tpl", self._root / "README.md", substitutions)
+        self._write(".gitignore.tpl", self._root / ".gitignore", substitutions)
 
         _LOGGER.info("Scaffolded sample '%s' at %s", sample.name, self._root)
         return self._root
@@ -80,16 +82,18 @@ class Scaffolder:
     # ------------------------------------------------------------------
     def _write(self, template_name: str, target: Path, substitutions: dict[str, str]) -> None:
         if target.exists() and not self._force:
-            raise ScaffoldError(
-                f"Refusing to overwrite '{target}'. Pass --force to replace it."
-            )
+            raise ScaffoldError(f"Refusing to overwrite '{target}'. Pass --force to replace it.")
         template_text = _read_template(template_name)
         rendered = Template(template_text).safe_substitute(substitutions)
         target.write_text(rendered, encoding="utf-8")
 
 
 def _read_template(name: str) -> str:
-    with resources.files("osdu_perf.scaffolding.templates").joinpath(name).open("r", encoding="utf-8") as f:
+    with (
+        resources.files("osdu_perf.scaffolding.templates")
+        .joinpath(name)
+        .open("r", encoding="utf-8") as f
+    ):
         return f.read()
 
 

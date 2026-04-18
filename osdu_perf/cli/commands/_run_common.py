@@ -32,13 +32,25 @@ def apply_profile_overrides(
 
 
 def resolved_test_run_id_prefix(resolved, args: argparse.Namespace) -> str:
-    """Return the test_run_id_prefix, letting ``--test-run-id-prefix`` win."""
+    """Return the test_run_id_prefix as ``<test_name>-<configured_prefix>``.
+
+    Precedence for the configured prefix: ``--test-run-id-prefix`` >
+    ``run_scenario.test_run_id_prefix`` > ``"perf"``. The resolved test name
+    (see :func:`resolved_test_name`) is always prepended so the prefix is
+    self-describing in Kusto and downstream tooling.
+    """
     cli = getattr(args, "test_run_id_prefix", None)
+    base: str | None = None
     if cli:
         cleaned = str(cli).strip()
         if cleaned:
-            return cleaned
-    return getattr(resolved, "test_run_id_prefix", None) or "perf"
+            base = cleaned
+    if base is None:
+        base = getattr(resolved, "test_run_id_prefix", None) or "perf"
+    test_name = resolved_test_name(resolved, args)
+    if base.startswith(f"{test_name}-") or base == test_name:
+        return base
+    return f"{test_name}-{base}"
 
 
 def resolved_test_name(resolved, args: argparse.Namespace) -> str:
@@ -70,9 +82,7 @@ def parse_label_overrides(args: argparse.Namespace) -> dict[str, str]:
     out: dict[str, str] = {}
     for item in raw:
         if "=" not in item:
-            raise ValueError(
-                f"--label expects KEY=VALUE, got '{item}'."
-            )
+            raise ValueError(f"--label expects KEY=VALUE, got '{item}'.")
         key, _, value = item.partition("=")
         key = key.strip()
         value = value.strip()

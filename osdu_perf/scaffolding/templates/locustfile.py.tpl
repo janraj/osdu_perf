@@ -5,6 +5,35 @@ implementations. The framework handles authentication, headers, and Kusto
 telemetry so your task methods can focus on the actual API calls.
 """
 
+# ----------------------------------------------------------------------------
+# Bootstrap: when running on Azure Load Testing or AKS, the osdu_perf wheel is
+# uploaded as an additional artifact next to this file. ALT's pip phase runs
+# from "/", and the AKS image baking sometimes drops the package install if the
+# requirements.txt only listed PyPI deps. So we install the local wheel here on
+# import (cheap no-op when osdu_perf is already importable).
+# ----------------------------------------------------------------------------
+import subprocess
+import sys
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+_WHEELS = sorted(_HERE.glob("osdu_perf-*.whl"))
+if _WHEELS:
+    try:
+        import osdu_perf  # noqa: F401
+    except ImportError:
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                "--force-reinstall",
+                str(_WHEELS[-1]),
+            ]
+        )
+
 from locust import task
 
 from osdu_perf import PerformanceUser, ServiceRegistry

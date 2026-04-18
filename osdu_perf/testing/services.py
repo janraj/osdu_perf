@@ -29,7 +29,8 @@ class ServiceRegistry:
         """Discover services from the given directory (defaults to cwd)."""
         directory = Path(root or Path.cwd())
         test_files = sorted(
-            p for p in directory.iterdir()
+            p
+            for p in directory.iterdir()
             if p.is_file() and p.name.startswith("perf_") and p.name.endswith("_test.py")
         )
         if not test_files:

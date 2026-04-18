@@ -11,10 +11,12 @@ from ..config import load_config
 from ..errors import ConfigError
 from ..kusto import KustoIngestor
 from ..telemetry import get_logger
+from . import _events
 from ._collector import collect_payload
 from .context import RequestContext
 
 _LOGGER = get_logger("testing.user")
+_events._register()
 
 
 class PerformanceUser(HttpUser):
@@ -136,7 +138,12 @@ class PerformanceUser(HttpUser):
 
         rows = [
             ("Test Run ID", ctx.test_run_id),
-            ("Environment", "Azure Load Test" if os.getenv("AZURE_LOAD_TEST", "").lower() == "true" else "Local"),
+            (
+                "Environment",
+                "Azure Load Test"
+                if os.getenv("AZURE_LOAD_TEST", "").lower() == "true"
+                else "Local",
+            ),
             ("Host", ctx.host),
             ("Partition", ctx.partition),
             ("App ID", ctx.app_id),
@@ -164,6 +171,54 @@ class PerformanceUser(HttpUser):
 # ----------------------------------------------------------------------
 # Event listeners at module scope so they are registered on import.
 # ----------------------------------------------------------------------
+@events.init_command_line_parser.add_listener
+def _on_init_parser(parser):
+    # Register custom CLI options so Locust auto-renders them as fields
+    # under "Custom parameters" in the web-UI swarm form. Defaults pull
+    # from current env so headless runs and the UI behave the same.
+    parser.add_argument(
+        "--osdu-test-name",
+        type=str,
+        default=os.getenv("OSDU_PERF_TEST_NAME", ""),
+        help="osdu_perf test name (overrides OSDU_PERF_TEST_NAME for this run).",
+        include_in_web_ui=True,
+    )
+    parser.add_argument(
+        "--osdu-test-run-id-prefix",
+        type=str,
+        default=os.getenv("OSDU_PERF_TEST_RUN_ID_PREFIX", ""),
+        help="osdu_perf test run id prefix (combined as <test-name>-<prefix>-<UTCts>).",
+        include_in_web_ui=True,
+    )
+
+
+@events.test_start.add_listener
+def _on_test_start(environment, **_kwargs):
+    # Apply UI-supplied overrides (if any) by mutating env vars before we
+    # rebuild RequestContext. Empty values fall back to whatever the pod
+    # was started with.
+    opts = getattr(environment, "parsed_options", None)
+    if opts is not None:
+        ui_test_name = (getattr(opts, "osdu_test_name", "") or "").strip()
+        if ui_test_name:
+            os.environ["OSDU_PERF_TEST_NAME"] = ui_test_name
+        ui_prefix = (getattr(opts, "osdu_test_run_id_prefix", "") or "").strip()
+        if ui_prefix:
+            os.environ["OSDU_PERF_TEST_RUN_ID_PREFIX"] = ui_prefix
+
+    # Drop any pre-set TEST_RUN_ID so a fresh one is generated for this run
+    # using the (possibly UI-overridden) name + prefix + new timestamp.
+    for var in ("TEST_RUN_ID_NAME", "TEST_RUN_ID"):
+        os.environ.pop(var, None)
+
+    # Reset per-endpoint accumulators and force a fresh RequestContext
+    # (with a new test_run_id) so repeat runs in Locust web-UI mode each
+    # produce a distinct Kusto entry instead of re-ingesting prior data.
+    _events.reset_state()
+    PerformanceUser._context = None
+    PerformanceUser._banner_printed = False
+
+
 @events.test_stop.add_listener
 def _on_test_stop(environment, **_kwargs):
     ctx = PerformanceUser._context

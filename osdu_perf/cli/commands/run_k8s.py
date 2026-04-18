@@ -1,17 +1,14 @@
-"""`osdu_perf run azure`."""
+"""``osdu_perf run k8s`` — run distributed Locust on AKS."""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 
-from ...auth import TokenProvider
-from ...azure import AzureRunner
-from ...azure.runner import AzureRunInputs
 from ...config import load_config, load_from_paths
-from ...config._loader import _discover  # noqa: PLC2701
+from ...config._loader import _discover  # noqa: PLC2701 - share discovery
 from ...errors import ConfigError
+from ...k8s import K8sRunInputs, K8sRunner
 from ._run_common import (
     apply_profile_overrides,
     parse_label_overrides,
@@ -23,22 +20,24 @@ from ._run_common import (
 def run(args: argparse.Namespace) -> int:
     project_dir = Path(args.directory).resolve()
     azure_config_arg = getattr(args, "azure_config", None)
+    azure_config_relpath: str | None = None
     if azure_config_arg:
         azure_path = Path(azure_config_arg)
         if not azure_path.is_absolute():
             azure_path = (project_dir / azure_path).resolve()
         if not azure_path.exists():
             raise ConfigError(f"--azure-config file not found: {azure_path}")
+        try:
+            azure_config_relpath = azure_path.relative_to(project_dir).as_posix()
+        except ValueError as exc:
+            raise ConfigError(
+                f"--azure-config must live inside --directory ({project_dir}); "
+                f"got {azure_path}"
+            ) from exc
         _, test_path = _discover(project_dir)
         config = load_from_paths(azure_path, test_path)
     else:
         config = load_config(project_dir)
-
-    if args.load_test_name:
-        config = replace(
-            config,
-            azure_load_test=replace(config.azure_load_test, name=args.load_test_name),
-        )
 
     env = config.osdu_env
     host = args.host or env.host
@@ -50,19 +49,15 @@ def run(args: argparse.Namespace) -> int:
     resolved = config.resolve(scenario=args.scenario, profile=args.profile)
     profile = apply_profile_overrides(resolved.profile, args)
     prefix = resolved_test_run_id_prefix(resolved, args)
-    if prefix != config.test_run_id_prefix:
-        config = replace(config, test_run_id_prefix=prefix)
     test_name = resolved_test_name(resolved, args)
     extra_labels = parse_label_overrides(args)
     merged_labels: dict[str, str] = {str(k): str(v) for k, v in resolved.labels.items()}
     merged_labels.update({str(k): str(v) for k, v in extra_labels.items()})
-    bearer = args.bearer_token or TokenProvider(explicit_token=args.bearer_token).get_token(app_id)
 
-    inputs = AzureRunInputs(
+    inputs = K8sRunInputs(
         host=host,
         partition=partition,
         app_id=app_id,
-        osdu_token=bearer,
         test_directory=project_dir,
         profile=profile,
         labels=merged_labels,
@@ -70,9 +65,15 @@ def run(args: argparse.Namespace) -> int:
         test_run_id_prefix=prefix,
         profile_name=resolved.profile_name,
         test_name=test_name,
+        image_tag=args.image_tag,
+        skip_build=args.no_build,
+        skip_push=args.no_push,
+        skip_logs=args.no_logs,
+        web_ui=args.web_ui or config.aks.web_ui,
+        azure_config_relpath=azure_config_relpath,
+        namespace_override=args.namespace,
     )
-    runner = AzureRunner(config)
-    result = runner.run(inputs)
+    result = K8sRunner(config).run(inputs)
     _print_run_summary(result)
     return 0
 
@@ -83,13 +84,14 @@ def _print_run_summary(result: dict) -> None:
     lines = [
         "",
         "=" * 72,
-        "Azure Load Test run started",
+        "AKS load test run started",
         "=" * 72,
+        f"  Run name         : {result.get('runName')}",
+        f"  Namespace        : {result.get('namespace')}",
+        f"  Image            : {result.get('image')} (pushed={result.get('imagePushed')})",
         f"  Scenario         : {result.get('scenario')}",
         f"  Test name        : {result.get('testName')}",
         f"  Profile          : {result.get('profileName')}",
-        f"  Test ID          : {result.get('testId')}",
-        f"  Test Run ID      : {result.get('testRunId')}",
         f"  Users            : {result.get('users')}",
         f"  Spawn rate       : {result.get('spawnRate')}",
         f"  Run time         : {result.get('runTime')}",
@@ -98,10 +100,24 @@ def _print_run_summary(result: dict) -> None:
         f"  Partition        : {result.get('partition')}",
         f"  App ID           : {result.get('appId')}",
         f"  Labels           : {labels_str}",
-        f"  ALT resource     : {result.get('loadTestResource')} (rg={result.get('resourceGroup')})",
+        f"  AKS cluster      : {result.get('aksCluster')} (rg={result.get('resourceGroup')})",
         f"  Subscription     : {result.get('subscriptionId')}",
         f"  Portal           : {result.get('portalUrl')}",
         "=" * 72,
         "",
     ]
+    if result.get("webUi"):
+        ns = result.get("namespace")
+        run_name = result.get("runName")
+        lines.extend([
+            "Web-UI mode enabled. The master pod is running Locust's web interface.",
+            "Port-forward to access the UI in your browser:",
+            "",
+            f"  kubectl port-forward -n {ns} svc/{run_name}-master 8089:8089",
+            "",
+            "Then open http://localhost:8089",
+            "Stop the run with: "
+            f"kubectl delete job -n {ns} {run_name}-master",
+            "",
+        ])
     print("\n".join(lines))

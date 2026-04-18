@@ -64,6 +64,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override azure_load_test.name from config.",
     )
 
+    run_k8s = run_subs.add_parser(
+        "k8s",
+        help="Run distributed Locust on AKS (build image, push to ACR, apply Job).",
+    )
+    _add_run_common_args(run_k8s)
+    run_k8s.add_argument(
+        "--namespace",
+        help="Override aks.namespace from config (default: 'perf').",
+    )
+    run_k8s.add_argument(
+        "--image-tag",
+        help="Override the auto-generated image tag (default: derived from run name).",
+    )
+    run_k8s.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Skip docker build; reuse the image already in ACR.",
+    )
+    run_k8s.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Build the image but do not push to ACR (local docker only).",
+    )
+    run_k8s.add_argument(
+        "--no-logs",
+        action="store_true",
+        help="Apply manifests then exit; do not stream master logs.",
+    )
+    run_k8s.add_argument(
+        "--web-ui",
+        action="store_true",
+        help=(
+            "Run Locust in web-UI mode (no --headless, no --run-time). "
+            "The master pod stays up; port-forward 8089 to drive runs from the browser. "
+            "Telemetry to Kusto is disabled in this mode (UI-driven runs are interactive)."
+        ),
+    )
+
     # validate --------------------------------------------------------
     validate = subparsers.add_parser(
         "validate", help="Validate configuration without running a test."
@@ -76,6 +114,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     # samples ---------------------------------------------------------
     subparsers.add_parser("samples", help="List bundled sample templates.")
+
+    # setup -----------------------------------------------------------
+    setup = subparsers.add_parser(
+        "setup", help="Provision external dependencies (Kusto tables, etc.)."
+    )
+    setup_subs = setup.add_subparsers(dest="target", required=True)
+
+    setup_kusto = setup_subs.add_parser(
+        "kusto",
+        help="Create/update the LocustMetricsV2 / LocustTestSummaryV2 / "
+        "LocustExceptionsV2 / LocustRequestTimeSeriesV2 tables.",
+    )
+    setup_kusto.add_argument(
+        "--directory",
+        default=".",
+        help="Project directory holding azure_config.yaml (default: cwd).",
+    )
+    setup_kusto.add_argument(
+        "--cluster-uri",
+        help="Override kusto_export.cluster_uri from azure_config.yaml.",
+    )
+    setup_kusto.add_argument(
+        "--database",
+        help="Override kusto_export.database from azure_config.yaml.",
+    )
+    setup_kusto.add_argument(
+        "--print-only",
+        action="store_true",
+        help="Print the KQL commands that would run without executing them.",
+    )
 
     # version ---------------------------------------------------------
     subparsers.add_parser("version", help="Print the installed version.")
@@ -103,6 +171,16 @@ def _add_run_common_args(parser: argparse.ArgumentParser) -> None:
         "--directory",
         default=".",
         help="Project directory (default: cwd).",
+    )
+    parser.add_argument(
+        "--azure-config",
+        help=(
+            "Path to the azure_config.yaml file to use (relative to --directory "
+            "or absolute). Lets one project hold multiple cluster configs, e.g. "
+            "'config/azure_config.yaml' vs 'config/azure_config_aks2.yaml'. "
+            "For 'run k8s', the same path is bundled into the image and read by "
+            "the pod via the OSDU_PERF_AZURE_CONFIG env var."
+        ),
     )
     parser.add_argument("--host", help="Override osdu_environment.host.")
     parser.add_argument("--partition", help="Override osdu_environment.partition.")

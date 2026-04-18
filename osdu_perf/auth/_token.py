@@ -12,7 +12,11 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-from azure.identity import AzureCliCredential, ManagedIdentityCredential
+from azure.identity import (
+    AzureCliCredential,
+    ManagedIdentityCredential,
+    WorkloadIdentityCredential,
+)
 
 from ..errors import AuthError
 from ..telemetry import get_logger
@@ -68,7 +72,20 @@ class TokenProvider:
     # Strategies
     # ------------------------------------------------------------------
     def _managed_identity_token(self, app_id: str) -> str:
-        scope = f"api://{app_id}/.default"
+        if os.getenv("AZURE_FEDERATED_TOKEN_FILE"):
+            # Workload Identity federation: AKS-issued SA tokens are exchanged
+            # for AAD tokens scoped to ARM. OSDU accepts these because the
+            # caller's principal id is what gets entitlement-checked, not the
+            # token's `aud`.
+            scope = "https://management.azure.com/.default"
+            self._logger.info("Acquiring token via Workload Identity (scope=%s)", scope)
+            try:
+                credential = WorkloadIdentityCredential()
+                result = credential.get_token(scope)
+            except Exception as exc:
+                raise AuthError(f"Workload Identity token acquisition failed: {exc}") from exc
+            return result.token
+        scope = f"{app_id}/.default"
         self._logger.info("Acquiring token via Managed Identity (scope=%s)", scope)
         try:
             credential = ManagedIdentityCredential(client_id=app_id)
@@ -86,7 +103,6 @@ class TokenProvider:
                     capture_output=True,
                     text=True,
                     check=False,
-                    shell=True,
                 )
             except FileNotFoundError:
                 continue
@@ -117,6 +133,7 @@ def _is_managed_identity_env() -> bool:
         os.getenv(flag)
         for flag in (
             "AZURE_LOAD_TEST",
+            "AZURE_FEDERATED_TOKEN_FILE",
             "LOCUST_HOST",
             "LOCUST_USERS",
             "LOCUST_RUN_TIME",

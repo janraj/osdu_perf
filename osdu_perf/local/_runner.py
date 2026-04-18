@@ -30,6 +30,7 @@ class LocalRunInputs:
     test_run_id_prefix: str = "perf"
     extra_labels: dict[str, str] = field(default_factory=dict)
     test_name: str | None = None
+    profile_name: str | None = None
     run_id: str | None = None
     """Optional pre-computed run id. When ``None`` the runner generates
     one using :func:`build_run_id`. Passing it in lets the caller print
@@ -62,6 +63,12 @@ class LocalRunner:
                 "APPID": inputs.app_id,
                 "TEST_RUN_ID": inputs.run_id or _run_id(inputs),
                 "TEST_SCENARIO": inputs.scenario,
+                "OSDU_PERF_PROFILE_NAME": inputs.profile_name or "",
+                "OSDU_PERF_PROFILE_USERS": str(inputs.profile.users),
+                "OSDU_PERF_PROFILE_SPAWN_RATE": str(inputs.profile.spawn_rate),
+                "OSDU_PERF_PROFILE_RUN_TIME": str(inputs.profile.run_time),
+                "OSDU_PERF_PROFILE_ENGINES": str(inputs.profile.engine_instances),
+                "OSDU_PERF_TEST_NAME": inputs.test_name or "",
             }
         )
         if inputs.bearer_token:

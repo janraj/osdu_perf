@@ -142,16 +142,14 @@ class AzureRunner:
         data_plane_uri = resource.get("data_plane_uri")
         principal_id = (resource.get("identity") or {}).get("principal_id")
         if not data_plane_uri or not principal_id:
-            raise AzureResourceError(
-                "Load test resource is missing data_plane_uri or principal_id"
-            )
+            raise AzureResourceError("Load test resource is missing data_plane_uri or principal_id")
         # The azure-developer-loadtesting SDK formats its base URL as
         # ``https://{Endpoint}``, so pass just the hostname (strip any
         # scheme we might have received).
         endpoint = data_plane_uri
         for prefix in ("https://", "http://"):
             if endpoint.startswith(prefix):
-                endpoint = endpoint[len(prefix):]
+                endpoint = endpoint[len(prefix) :]
                 break
         endpoint = endpoint.rstrip("/")
         self._principal_id = principal_id
@@ -169,8 +167,17 @@ class AzureRunner:
             "LOCUST_SPAWN_RATE": str(inputs.profile.spawn_rate),
             "LOCUST_RUN_TIME": str(_to_seconds(inputs.profile.run_time)),
             "AZURE_LOAD_TEST": "true",
+            "OSDU_PERF_ENV": "Azure Load Test",
             "TEST_SCENARIO": inputs.scenario,
             "ADME_BEARER_TOKEN": inputs.osdu_token,
+            "OSDU_PERF_PROFILE_NAME": inputs.profile_name
+            or self._resolve_profile_name(inputs.profile)
+            or "",
+            "OSDU_PERF_PROFILE_USERS": str(inputs.profile.users),
+            "OSDU_PERF_PROFILE_SPAWN_RATE": str(inputs.profile.spawn_rate),
+            "OSDU_PERF_PROFILE_RUN_TIME": str(inputs.profile.run_time),
+            "OSDU_PERF_PROFILE_ENGINES": str(inputs.profile.engine_instances),
+            "OSDU_PERF_TEST_NAME": inputs.test_name or "",
         }
         body = {
             "displayName": test_name[:50],
@@ -208,9 +215,7 @@ class AzureRunner:
             osdu_token=inputs.osdu_token,
         )
         if not result.success:
-            raise AzureResourceError(
-                f"Entitlement provisioning failed: {result.message}"
-            )
+            raise AzureResourceError(f"Entitlement provisioning failed: {result.message}")
 
 
 # ----------------------------------------------------------------------
@@ -250,9 +255,7 @@ def _to_seconds(run_time: str) -> int:
         return int(value)
     match = re.fullmatch(r"(\d+)([smhd])", value)
     if not match:
-        raise ConfigError(
-            f"Invalid run_time '{run_time}' (expected e.g. '60s', '5m', '1h')"
-        )
+        raise ConfigError(f"Invalid run_time '{run_time}' (expected e.g. '60s', '5m', '1h')")
     amount, unit = match.groups()
     return int(amount) * _SECONDS_MULTIPLIERS[unit]
 

@@ -26,6 +26,10 @@ from osdu_perf import BaseService
 class ${CLASS_NAME}(BaseService):
     """POST /api/search/v2/query with a randomised record id per call."""
 
+    # Human-friendly label for dashboards. Rows ingested into
+    # LocustMetricsV2 / LocustExceptionsV2 use this as the ``Service`` column.
+    service_name = "search"
+
     def provide_explicit_token(self) -> str:
         return ""
 

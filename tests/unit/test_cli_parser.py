@@ -21,14 +21,16 @@ def test_run_local_scenario_is_optional() -> None:
 
 def test_run_azure_forwards_flags() -> None:
     parser = build_parser()
-    args = parser.parse_args([
-        "run",
-        "azure",
-        "--scenario",
-        "smoke",
-        "--load-test-name",
-        "alt-1",
-    ])
+    args = parser.parse_args(
+        [
+            "run",
+            "azure",
+            "--scenario",
+            "smoke",
+            "--load-test-name",
+            "alt-1",
+        ]
+    )
     assert args.command == "run"
     assert args.target == "azure"
     assert args.scenario == "smoke"
@@ -37,15 +39,24 @@ def test_run_azure_forwards_flags() -> None:
 
 def test_run_local_load_shape_overrides_parse() -> None:
     parser = build_parser()
-    args = parser.parse_args([
-        "run", "local",
-        "--users", "42",
-        "--spawn-rate", "3",
-        "--run-time", "90s",
-        "--engine-instances", "2",
-        "--test-run-id-prefix", "smoke",
-        "--test-name", "nightly",
-    ])
+    args = parser.parse_args(
+        [
+            "run",
+            "local",
+            "--users",
+            "42",
+            "--spawn-rate",
+            "3",
+            "--run-time",
+            "90s",
+            "--engine-instances",
+            "2",
+            "--test-run-id-prefix",
+            "smoke",
+            "--test-name",
+            "nightly",
+        ]
+    )
     assert args.users == 42
     assert args.spawn_rate == 3
     assert args.run_time == "90s"
@@ -59,7 +70,6 @@ def test_apply_profile_overrides_replaces_fields() -> None:
 
     from osdu_perf.cli.commands._run_common import (
         apply_profile_overrides,
-        resolved_test_name,
         resolved_test_run_id_prefix,
     )
     from osdu_perf.config import PerformanceProfile
@@ -68,26 +78,38 @@ def test_apply_profile_overrides_replaces_fields() -> None:
     args = argparse.Namespace(users=100, spawn_rate=None, run_time="5m", engine_instances=None)
     result = apply_profile_overrides(base, args)
     assert result.users == 100
-    assert result.spawn_rate == 2        # untouched
+    assert result.spawn_rate == 2  # untouched
     assert result.run_time == "5m"
     assert result.engine_instances == 1  # untouched
 
     class _Resolved:
         test_run_id_prefix = "perf"
+        test_name = "tn"
+        scenario = "search_query"
 
-    # CLI override wins
+    # CLI override wins, with test_name prepended
     assert (
         resolved_test_run_id_prefix(
-            _Resolved(), argparse.Namespace(test_run_id_prefix="smoke")
+            _Resolved(),
+            argparse.Namespace(test_run_id_prefix="smoke", test_name=None),
         )
-        == "smoke"
+        == "tn-smoke"
     )
-    # Fallback to resolved config
+    # Fallback to resolved config, also prepended
     assert (
         resolved_test_run_id_prefix(
-            _Resolved(), argparse.Namespace(test_run_id_prefix=None)
+            _Resolved(),
+            argparse.Namespace(test_run_id_prefix=None, test_name=None),
         )
-        == "perf"
+        == "tn-perf"
+    )
+    # Idempotent if already prefixed
+    assert (
+        resolved_test_run_id_prefix(
+            _Resolved(),
+            argparse.Namespace(test_run_id_prefix="tn-base", test_name=None),
+        )
+        == "tn-base"
     )
 
 
@@ -101,29 +123,18 @@ def test_resolved_test_name_precedence() -> None:
         test_name = "smoke"
 
     # CLI wins
-    assert (
-        resolved_test_name(_R(), argparse.Namespace(test_name="nightly"))
-        == "nightly"
-    )
+    assert resolved_test_name(_R(), argparse.Namespace(test_name="nightly")) == "nightly"
     # Config wins when CLI absent
-    assert (
-        resolved_test_name(_R(), argparse.Namespace(test_name=None))
-        == "smoke"
-    )
+    assert resolved_test_name(_R(), argparse.Namespace(test_name=None)) == "smoke"
+
     # Fallback to scenario
     class _R2:
         scenario = "search_query"
         test_name = None
 
-    assert (
-        resolved_test_name(_R2(), argparse.Namespace(test_name=None))
-        == "search_query"
-    )
+    assert resolved_test_name(_R2(), argparse.Namespace(test_name=None)) == "search_query"
     # Blank CLI value falls through
-    assert (
-        resolved_test_name(_R(), argparse.Namespace(test_name="  "))
-        == "smoke"
-    )
+    assert resolved_test_name(_R(), argparse.Namespace(test_name="  ")) == "smoke"
 
 
 def test_parse_label_overrides() -> None:
@@ -151,3 +162,82 @@ def test_version_command() -> None:
     parser = build_parser()
     args = parser.parse_args(["version"])
     assert args.command == "version"
+
+
+def test_setup_kusto_defaults() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["setup", "kusto"])
+    assert args.command == "setup"
+    assert args.target == "kusto"
+    assert args.directory == "."
+    assert args.cluster_uri is None
+    assert args.database is None
+    assert args.print_only is False
+
+
+def test_setup_kusto_overrides() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "setup",
+            "kusto",
+            "--directory",
+            "/tmp/proj",
+            "--cluster-uri",
+            "https://c.kusto.windows.net",
+            "--database",
+            "mydb",
+            "--print-only",
+        ]
+    )
+    assert args.target == "kusto"
+    assert args.directory == "/tmp/proj"
+    assert args.cluster_uri == "https://c.kusto.windows.net"
+    assert args.database == "mydb"
+    assert args.print_only is True
+
+
+def test_setup_requires_target() -> None:
+    import pytest
+
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["setup"])
+
+
+def test_run_k8s_defaults() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["run", "k8s"])
+    assert args.command == "run"
+    assert args.target == "k8s"
+    assert args.namespace is None
+    assert args.image_tag is None
+    assert args.no_build is False
+    assert args.no_push is False
+    assert args.no_logs is False
+
+
+def test_run_k8s_overrides() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "k8s",
+            "--namespace",
+            "perf-east",
+            "--image-tag",
+            "v42",
+            "--no-build",
+            "--no-push",
+            "--no-logs",
+            "--users",
+            "20",
+        ]
+    )
+    assert args.target == "k8s"
+    assert args.namespace == "perf-east"
+    assert args.image_tag == "v42"
+    assert args.no_build is True
+    assert args.no_push is True
+    assert args.no_logs is True
+    assert args.users == 20

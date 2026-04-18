@@ -1,0 +1,19 @@
+# Skip everything that bloats the image or leaks secrets.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.venv/
+**/venv/
+**/.git/
+**/.gitignore
+**/.dockerignore
+**/.azure/
+**/dist/
+**/build/
+**/*.egg-info/
+.env
+.env.*
+*.log

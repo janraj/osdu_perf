@@ -1,31 +1,130 @@
 # Changelog
 
-## Unreleased — `sabz/enhancements`
+## 2.1.0 — AKS runner, web-UI mode, in-browser overrides
 
 Additive, backward-compatible enhancements on top of `2.0.0`. No
 existing command changes behaviour unless you opt in.
 
+### CLI — new subcommand `osdu_perf run k8s`
+
+Build the test project as a container image, push it to Azure Container
+Registry, then deploy a distributed Locust run (1 master + N-1 workers,
+where N = `engine_instances`) on AKS using Workload Identity for OSDU +
+Kusto auth. New flags specific to `run k8s`:
+
+| Flag                | Purpose                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
+| `--namespace NAME`  | Override `aks.namespace` from `azure_config.yaml` (default `perf`).    |
+| `--image-tag TAG`   | Override the auto-generated image tag (default: derived from run name).|
+| `--no-build`        | Skip docker build; reuse the image already in ACR.                     |
+| `--no-push`         | Build the image but do not push to ACR (local docker only).            |
+| `--no-logs`         | Apply manifests then exit; do not stream master logs.                  |
+| `--web-ui`          | Web-UI mode (see below).                                               |
+
+New required `azure_config.yaml` block:
+
+```yaml
+aks:
+  subscription_id: <sub-guid>
+  resource_group: <rg>
+  cluster_name: <aks-name>
+  namespace: perf
+  service_account: osdu-perf-runner
+  workload_identity_client_id: <uami-client-id>
+  web_ui: false                         # default; CLI --web-ui overrides
+  container_registry:
+    name: myacr                         # short ACR name (used for `az acr login`)
+    image_repository: osdu-perf
+```
+
+Cluster-side prerequisites (one-time): AKS Workload Identity + OIDC
+issuer enabled, a UAMI with `AcrPull` on the registry + `Database User`
+on Kusto + the OSDU app role(s) the test calls, and a federated
+credential on the UAMI bound to
+`system:serviceaccount:<namespace>:<service_account>`.
+
+### CLI — web-UI mode for k8s runs (`--web-ui`)
+
+`osdu_perf run k8s --web-ui` keeps the master pod alive serving
+Locust's web UI on port 8089 (`--web-host=0.0.0.0`, no `--headless`,
+no `--run-time`). Workers attach as usual; the operator drives runs
+from the browser. Pair with `kubectl port-forward` or an Istio
+VirtualService routing a sub-path (`--web-base-path=/locust`) to the
+master service.
+
+Each click of **Start swarming** in the browser:
+
+1. Resets per-endpoint accumulators on every worker so repeat runs
+   each produce a distinct Kusto telemetry payload.
+2. Generates a fresh `<test_name>-<prefix>-<UTCts>` test-run id and
+   ingests it as a separate row at test-stop.
+
+### CLI — in-browser overrides (web-UI mode)
+
+The Locust swarm form now exposes two custom fields, auto-rendered
+from CLI options registered via `@events.init_command_line_parser`:
+
+| Field            | Backing CLI / env                                  |
+| ---------------- | -------------------------------------------------- |
+| `Osdu test name` | `--osdu-test-name` / `OSDU_PERF_TEST_NAME`         |
+| `Osdu test run id prefix` | `--osdu-test-run-id-prefix` / `OSDU_PERF_TEST_RUN_ID_PREFIX` |
+
+Defaults populate from the pod's environment, so leaving them alone
+behaves exactly as today. Change either, click **Start swarming**, and
+the next run's Kusto `TestRunId` reflects the new values without
+restarting any pod.
+
+### CLI — `--azure-config PATH`
+
+New flag on every `run` subcommand. Pick a non-default
+`azure_config.yaml` (relative to `--directory` or absolute). One
+project can hold per-cluster configs, e.g.:
+
+```
+config/azure_config.yaml          # AKS1
+config/azure_config_aks2.yaml     # AKS2
+config/azure_config_aks3.yaml     # AKS3
+```
+
+For `run k8s`, the same path is bundled into the image and read by
+the pod via the `OSDU_PERF_AZURE_CONFIG` env var (also honoured by
+`load_config()`).
+
+### Test-run id reshape
+
+The generated test-run id (Kusto `TestRunId` column, Locust env var,
+correlation-id base) drops the leading `<scenario>_` segment and
+collapses to:
+
+```
+<test_name>-<prefix>-<UTC_YYYYMMDDHHMMSS>
+```
+
+This matches the AKS pod/job naming and keeps Kusto rows easy to
+group by `TestName`. The CLI's pre-computed `test_run_id_prefix` is
+folded as `<test_name>-<configured_prefix>` so banner + Kusto + in-pod
+generated id all agree. `_generate_test_run_id` is idempotent — if
+the prefix already starts with the test name it is not duplicated.
+
 ### CLI — load-shape overrides
 
-New flags on both `run local` and `run azure` that override individual
-fields of the resolved profile:
+New flags on `run local`, `run azure`, and `run k8s` that override
+individual fields of the resolved profile:
 
-| Flag                    | Overrides                     |
-| ----------------------- | ----------------------------- |
-| `--users N`             | `profile.users`               |
-| `--spawn-rate N`        | `profile.spawn_rate`          |
-| `--run-time DURATION`   | `profile.run_time`            |
-| `--engine-instances N`  | `profile.engine_instances` (ALT only; ignored by `run local`) |
+| Flag                    | Overrides                                           |
+| ----------------------- | --------------------------------------------------- |
+| `--users N`             | `profile.users`                                     |
+| `--spawn-rate N`        | `profile.spawn_rate`                                |
+| `--run-time DURATION`   | `profile.run_time`                                  |
+| `--engine-instances N`  | `profile.engine_instances` (worker pod count on k8s)|
 
 Mix and match — any flag you pass replaces that single field, the rest
-come from the profile. Useful for ad-hoc smoke tests without editing
-YAML.
+come from the profile.
 
 ### CLI — test run id prefix
 
 `test_run_id_prefix` is now a top-level field in
-`config/test_config.yaml` (default `perf`). Controls the token embedded
-in every generated run id. Per-invocation override:
+`config/test_config.yaml` (default `perf`). Per-invocation override:
 `--test-run-id-prefix TAG`.
 
 ### CLI — stable ALT test id via `test_name`
@@ -43,8 +142,8 @@ invocation nests a new *run* under the same test.
 Generated identifiers:
 
 ```
-Test id:     <scenario>_<test_name>                           # stable
-Test run id: <scenario>_<test_name>_<prefix>_<UTC_timestamp>  # unique
+ALT Test id:     <scenario>_<test_name>                     # stable
+Test run id:     <test_name>-<prefix>-<UTC_timestamp>       # unique
 ```
 
 ### CLI — extra labels
@@ -61,10 +160,10 @@ osdu_perf run azure --scenario search_query \
 
 ### CLI — richer startup summary
 
-`osdu_perf run azure` now prints a single readable block on startup
-with scenario, test name, profile, Test ID, Test Run ID, load shape,
-host/partition/app id, merged labels, ALT resource, and a deep-link
-portal URL.
+`osdu_perf run azure` and `run k8s` print a single readable block on
+startup with scenario, test name, profile, Test ID, Test Run ID, load
+shape, host/partition/app id, merged labels, ALT or AKS resource
+identifiers, and a deep-link portal URL.
 
 ### Scaffolding
 

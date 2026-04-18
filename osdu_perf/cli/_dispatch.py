@@ -12,8 +12,10 @@ from ..telemetry import configure as configure_logging
 from ._parser import build_parser
 from .commands import init as init_cmd
 from .commands import run_azure as run_azure_cmd
+from .commands import run_k8s as run_k8s_cmd
 from .commands import run_local as run_local_cmd
 from .commands import samples as samples_cmd
+from .commands import setup as setup_cmd
 from .commands import validate as validate_cmd
 from .commands import version as version_cmd
 
@@ -27,6 +29,8 @@ def _router(args: argparse.Namespace) -> _Dispatch:
         return validate_cmd.run
     if args.command == "samples":
         return samples_cmd.run
+    if args.command == "setup":
+        return setup_cmd.run
     if args.command == "version":
         return version_cmd.run
     if args.command == "run":
@@ -34,6 +38,8 @@ def _router(args: argparse.Namespace) -> _Dispatch:
             return run_local_cmd.run
         if args.target == "azure":
             return run_azure_cmd.run
+        if args.target == "k8s":
+            return run_k8s_cmd.run
     raise OsduPerfError(f"Unknown command '{args.command}'")
 
 

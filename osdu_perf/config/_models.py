@@ -38,6 +38,49 @@ class KustoConfig:
         return bool(self.database and (self.cluster_uri or self.ingest_uri))
 
 
+@dataclass(frozen=True)
+class ContainerRegistryConfig:
+    """Azure Container Registry coordinates (used by ``run k8s`` only).
+
+    ``login_server`` is the fully-qualified ACR hostname (``<name>.azurecr.io``);
+    ``name`` is the short ACR resource name used by ``az acr login``.
+    ``image_repository`` is the repo path within the registry where the
+    test image is pushed (default: ``osdu-perf``).
+    """
+
+    login_server: str | None = None
+    name: str | None = None
+    image_repository: str = "osdu-perf"
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.login_server and self.name)
+
+
+@dataclass(frozen=True)
+class AksConfig:
+    """AKS cluster coordinates (used by ``run k8s`` only).
+
+    The runner shells out to ``az aks get-credentials`` to merge the
+    cluster context into ``kubectl`` before applying manifests.
+    ``workload_identity_client_id`` is the AAD app/UAMI client id that the
+    pod's ServiceAccount is federated to; both OSDU and Kusto auth in the
+    pod resolve through this identity.
+    """
+
+    subscription_id: str | None = None
+    resource_group: str | None = None
+    cluster_name: str | None = None
+    namespace: str = "perf"
+    service_account: str = "osdu-perf-runner"
+    workload_identity_client_id: str | None = None
+    web_ui: bool = False
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.subscription_id and self.resource_group and self.cluster_name)
+
+
 # ----------------------------------------------------------------------
 # test_config.yaml
 # ----------------------------------------------------------------------
@@ -93,6 +136,7 @@ class RunScenario:
     scenario: str | None = None
     profile: str | None = None
     test_name: str | None = None
+    test_run_id_prefix: str | None = None
     labels: dict[str, Any] = field(default_factory=dict)
 
 
@@ -106,6 +150,8 @@ class AppConfig:
     osdu_env: OsduEnv
     azure_load_test: AzureLoadTest
     kusto_export: KustoConfig
+    container_registry: ContainerRegistryConfig
+    aks: AksConfig
     labels: dict[str, Any]
     profiles: dict[str, PerformanceProfile]
     scenario_defaults: dict[str, ScenarioDefault]
@@ -197,8 +243,10 @@ class ResolvedRun:
 
 
 __all__ = [
+    "AksConfig",
     "AppConfig",
     "AzureLoadTest",
+    "ContainerRegistryConfig",
     "KustoConfig",
     "OsduEnv",
     "PerformanceProfile",

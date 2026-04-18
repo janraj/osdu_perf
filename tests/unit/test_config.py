@@ -204,3 +204,67 @@ scenario_defaults:
     test = _write(tmp_path, "t.yaml", _test_yaml(extra))
     with pytest.raises(ConfigError):
         load_from_paths(azure, test)
+
+
+# ---------------------------------------------------------------------
+# test_run_id_prefix precedence
+# ---------------------------------------------------------------------
+def test_run_scenario_prefix_wins_over_top_level(tmp_path: Path) -> None:
+    extra = """
+test_run_id_prefix: legacy
+run_scenario:
+  scenario: smoke
+  profile: U50_T15M
+  test_run_id_prefix: nightly
+scenario_defaults:
+  smoke: { profile: U50_T15M }
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+    assert config.test_run_id_prefix == "nightly"
+
+
+def test_top_level_prefix_used_when_run_scenario_omits_it(tmp_path: Path) -> None:
+    extra = """
+test_run_id_prefix: legacy
+run_scenario:
+  scenario: smoke
+  profile: U50_T15M
+scenario_defaults:
+  smoke: { profile: U50_T15M }
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+    assert config.test_run_id_prefix == "legacy"
+
+
+def test_prefix_defaults_to_perf_when_neither_is_set(tmp_path: Path) -> None:
+    extra = """
+scenario_defaults:
+  smoke: { profile: U50_T15M }
+run_scenario:
+  scenario: smoke
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    config = load_from_paths(azure, test)
+    assert config.test_run_id_prefix == "perf"
+
+
+def test_top_level_prefix_emits_deprecation_warning(tmp_path: Path, caplog) -> None:
+    import logging
+
+    extra = """
+test_run_id_prefix: legacy
+scenario_defaults:
+  smoke: { profile: U50_T15M }
+run_scenario:
+  scenario: smoke
+"""
+    azure = _write(tmp_path, "a.yaml", "")
+    test = _write(tmp_path, "t.yaml", _test_yaml(extra))
+    with caplog.at_level(logging.WARNING, logger="osdu_perf.config.loader"):
+        load_from_paths(azure, test)
+    assert any("deprecated" in r.getMessage() for r in caplog.records)

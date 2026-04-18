@@ -30,6 +30,14 @@ class RequestContext:
     test_run_id: str
     scenario: str
     config: AppConfig
+    test_name: str = ""
+    profile_name: str = ""
+    profile_users: int = 0
+    profile_spawn_rate: float = 0.0
+    profile_run_time_seconds: int = 0
+    profile_engine_instances: int = 0
+    alt_test_run_id: str = ""
+    engine_id: str = ""
     _hostname: str = field(default_factory=lambda: _short_hostname())
     _counter: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -71,6 +79,13 @@ class RequestContext:
             or _generate_test_run_id(config, scenario)
         )
 
+        # Load-shape metadata -- set by the runners (local + ALT) so the
+        # Kusto collector can emit first-class columns instead of stuffing
+        # everything into the ``Labels`` dynamic bag.
+        profile_name = os.getenv("OSDU_PERF_PROFILE_NAME", "")
+        run_time_seconds = _parse_run_time(
+            os.getenv("OSDU_PERF_PROFILE_RUN_TIME") or os.getenv("LOCUST_RUN_TIME") or ""
+        )
         return cls(
             host=host,
             partition=partition,
@@ -79,6 +94,18 @@ class RequestContext:
             test_run_id=test_run_id,
             scenario=scenario,
             config=config,
+            test_name=os.getenv("OSDU_PERF_TEST_NAME", "") or scenario,
+            profile_name=profile_name,
+            profile_users=_safe_int(
+                os.getenv("OSDU_PERF_PROFILE_USERS") or os.getenv("LOCUST_USERS")
+            ),
+            profile_spawn_rate=_safe_float(
+                os.getenv("OSDU_PERF_PROFILE_SPAWN_RATE") or os.getenv("LOCUST_SPAWN_RATE")
+            ),
+            profile_run_time_seconds=run_time_seconds,
+            profile_engine_instances=_safe_int(os.getenv("OSDU_PERF_PROFILE_ENGINES")),
+            alt_test_run_id=os.getenv("AZURE_LOAD_TEST_RUN_ID", ""),
+            engine_id=os.getenv("WORKER_ID") or os.getenv("HOSTNAME") or _short_hostname(),
         )
 
     # ------------------------------------------------------------------
@@ -139,8 +166,54 @@ def _short_hostname() -> str:
 
 def _generate_test_run_id(config: AppConfig, scenario: str) -> str:
     stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    prefix = getattr(config, "test_run_id_prefix", None) or "perf"
-    return f"{scenario}_{prefix}_{stamp}"
+    prefix = (
+        (os.getenv("OSDU_PERF_TEST_RUN_ID_PREFIX") or "").strip()
+        or getattr(config, "test_run_id_prefix", None)
+        or "perf"
+    )
+    test_name = (os.getenv("OSDU_PERF_TEST_NAME") or "").strip() or scenario
+    if prefix.startswith(f"{test_name}-") or prefix == test_name:
+        head = prefix
+    else:
+        head = f"{test_name}-{prefix}"
+    return f"{head}-{stamp}"
+
+
+def _safe_int(value: str | None) -> int:
+    try:
+        return int(float(value)) if value else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: str | None) -> float:
+    try:
+        return float(value) if value else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_run_time(value: str) -> int:
+    """Parse Locust-style run time (``60s``/``15m``/``2h``) to seconds.
+
+    When the value is already numeric (the ALT runner sends seconds)
+    we use it directly.
+    """
+    if not value:
+        return 0
+    value = value.strip().lower()
+    try:
+        return int(float(value))
+    except ValueError:
+        pass
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    unit = value[-1]
+    if unit in units:
+        try:
+            return int(float(value[:-1]) * units[unit])
+        except ValueError:
+            return 0
+    return 0
 
 
 __all__ = ["RequestContext"]
