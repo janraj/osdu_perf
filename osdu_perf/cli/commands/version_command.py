@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 from ..command_base import Command
 from ...utils.logger import get_logger
@@ -6,9 +7,16 @@ from ... import __version__
 
 class VersionCommand(Command):
     """Command for displaying version information."""
-    
+
+    name = "version"
+    help = "Show version information"
+    parent_chain = ()
+
     def __init__(self, logger):
         self.logger = logger
+
+    def register_args(self, parser: argparse.ArgumentParser) -> None:
+        pass  # No arguments for version command
 
     def validate_args(self, args) -> bool:
         return True  # No validation needed for version command

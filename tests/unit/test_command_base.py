@@ -21,6 +21,9 @@ class TestCommand:
         logger_mock = Mock()
         
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
@@ -35,6 +38,9 @@ class TestCommand:
         logger_mock = Mock()
         
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
@@ -54,6 +60,9 @@ class TestCommand:
         logger_mock = Mock()
         
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
@@ -85,6 +94,9 @@ class TestCommand:
         
         # Missing execute method
         class IncompleteCommand1(Command):
+            def register_args(self, parser):
+                pass
+
             def validate_args(self, args):
                 return True
         
@@ -93,17 +105,34 @@ class TestCommand:
         
         # Missing validate_args method
         class IncompleteCommand2(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
         
         with pytest.raises(TypeError):
             IncompleteCommand2(logger_mock)
+        
+        # Missing register_args method
+        class IncompleteCommand3(Command):
+            def execute(self, args):
+                return 0
+
+            def validate_args(self, args):
+                return True
+        
+        with pytest.raises(TypeError):
+            IncompleteCommand3(logger_mock)
     
     def test_command_inheritance_hierarchy(self):
         """Test the inheritance hierarchy works correctly."""
         logger_mock = Mock()
         
         class BaseConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
@@ -133,6 +162,9 @@ class TestCommand:
         logger_mock.name = "test_logger"
         
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 self.logger.info("Executing command")
                 return 0
@@ -154,6 +186,9 @@ class TestCommand:
     def test_command_with_none_logger(self):
         """Test command behavior with None logger."""
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
@@ -173,6 +208,9 @@ class TestCommand:
         logger_mock = Mock()
         
         class ConcreteCommand(Command):
+            def register_args(self, parser):
+                pass
+
             def execute(self, args):
                 return 0
             
