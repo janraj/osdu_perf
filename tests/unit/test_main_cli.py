@@ -46,8 +46,8 @@ class TestMain:
     @patch('osdu_perf.cli.main.sys.exit')
     @patch('osdu_perf.cli.main.CommandRegistry')
     @patch('osdu_perf.cli.main.get_logger')
-    def test_main_no_command_prints_help(self, mock_get_logger, mock_registry_class, mock_sys_exit):
-        """Test main when no command is provided."""
+    def test_main_no_command_resolve_exits(self, mock_get_logger, mock_registry_class, mock_sys_exit):
+        """Test main raises SystemExit when resolve() finds no command."""
         mock_logger = Mock()
         mock_get_logger.return_value = mock_logger
         
@@ -58,14 +58,13 @@ class TestMain:
         
         mock_registry = Mock()
         mock_registry.build_parser.return_value = mock_parser
+        mock_registry.resolve.side_effect = SystemExit(
+            "No command resolved. Run with --help to see available commands."
+        )
         mock_registry_class.return_value = mock_registry
         
-        result = main()
-        
-        mock_parser.print_help.assert_called_once()
-        mock_registry.resolve.assert_not_called()
-        mock_sys_exit.assert_not_called()
-        assert result is None
+        with pytest.raises(SystemExit):
+            main()
     
     @patch('osdu_perf.cli.main.sys.exit')
     @patch('osdu_perf.cli.main.CommandRegistry')
@@ -212,11 +211,15 @@ class TestMain:
         with patch('osdu_perf.cli.main.CommandRegistry') as mock_registry_class:
             mock_parser = Mock()
             mock_args = Mock()
-            mock_args.command = None
+            mock_args.command = 'version'
             mock_parser.parse_args.return_value = mock_args
+            
+            mock_command = Mock()
+            mock_command.execute.return_value = 0
             
             mock_registry = Mock()
             mock_registry.build_parser.return_value = mock_parser
+            mock_registry.resolve.return_value = mock_command
             mock_registry_class.return_value = mock_registry
             
             main()
