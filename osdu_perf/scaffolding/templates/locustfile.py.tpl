@@ -46,6 +46,7 @@ class OsduUser(PerformanceUser):
         self._registry = ServiceRegistry()
         self._registry.discover(self.client)
         for service in self._registry.services:
+            service.test_run_id = self.osdu_context.test_run_id
             service.prehook(
                 headers=self.get_headers(),
                 partition=self.get_partition(),

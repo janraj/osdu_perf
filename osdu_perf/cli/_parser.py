@@ -93,6 +93,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Apply manifests then exit; do not stream master logs.",
     )
     run_k8s.add_argument(
+        "--create-service-account",
+        action="store_true",
+        help=(
+            "Have the bundled Helm chart create the ServiceAccount with the "
+            "Workload Identity annotation (using aks.workload_identity_client_id). "
+            "Use this on a fresh cluster where the SA does not yet exist. "
+            "Overrides aks.create_service_account from azure_config.yaml. "
+            "When omitted, the runner expects the SA to already exist in the "
+            "namespace and will fail fast with a helpful error if it does not."
+        ),
+    )
+    run_k8s.add_argument(
         "--web-ui",
         action="store_true",
         help=(

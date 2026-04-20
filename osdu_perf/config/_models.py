@@ -95,6 +95,7 @@ class AksConfig:
     namespace: str = "perf"
     service_account: str = "osdu-perf-runner"
     workload_identity_client_id: str | None = None
+    create_service_account: bool = False
     web_ui: bool = False
     ingress: AksIngress = field(default_factory=AksIngress)
 

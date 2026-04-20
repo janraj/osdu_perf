@@ -332,8 +332,9 @@ Scaffold a new project.
 osdu_perf init --sample=<name> [--directory=PATH] [--force] [--list-samples]
 ```
 
-* `--sample=<name>`: currently only `search_query` is bundled
-  (default `search_query`).
+* `--sample=<name>`: bundled samples are `search_query` (default) and
+  `storage_get_record_by_id` (legaltag + record upsert in `prehook`,
+  then `GET /api/storage/v2/records/{id}` in the hot loop).
 * `--directory=PATH`: target directory (default `.`).
 * `--force`: overwrite existing files.
 * `--list-samples`: print available samples and exit.
@@ -444,7 +445,8 @@ osdu_perf run k8s \
   [--azure-config=PATH]        \  # alt config file (per-cluster)
   [--namespace=perf]           \  # overrides aks.namespace
   [--image-tag=TAG]            \  # default: derived from run name
-  [--no-build] [--no-push] [--no-logs] [--web-ui]
+  [--no-build] [--no-push] [--no-logs] [--web-ui] \
+  [--create-service-account]      # bootstrap a fresh cluster (see below)
 ```
 
 **Required `azure_config.yaml` blocks:**
@@ -457,6 +459,10 @@ aks:
   namespace: perf                    # optional; default
   service_account: osdu-perf-runner  # optional; default
   workload_identity_client_id: <uami-or-app-client-id>
+  create_service_account: false      # optional; default. true = the chart creates
+                                     # the ServiceAccount with the WI annotation
+                                     # (use on a fresh cluster). CLI flag
+                                     # --create-service-account overrides this.
   web_ui: false                      # optional; CLI --web-ui overrides
   container_registry:
     name: myacr                      # short ACR name (used for `az acr login`)
@@ -489,8 +495,21 @@ aks:
      entitlement flow as the ALT identity.
 3. A federated credential on the UAMI bound to
    `system:serviceaccount:<namespace>:<service_account>`.
-4. `docker`, `az`, `kubectl`, and `helm` (v3+) on the operator's PATH.
-5. (For `ingress.type: istio`) an Istio Gateway already exists and
+4. The `osdu-perf-runner` ServiceAccount exists in `<namespace>` with the
+   `azure.workload.identity/client-id` annotation. Two ways:
+   * **Easy (fresh cluster):** add `--create-service-account` to the
+     first `osdu_perf run k8s` invocation (or set
+     `aks.create_service_account: true` once in `azure_config.yaml`).
+     The bundled chart will create it from
+     `aks.workload_identity_client_id`. Subsequent runs can drop the
+     flag.
+   * **Manual:** apply the SA YAML once with the WI annotation set to
+     the UAMI client_id.
+
+   If neither is in place, `osdu_perf run k8s` now aborts before helm
+   with a copy-pasteable remediation block.
+5. `docker`, `az`, `kubectl`, and `helm` (v3+) on the operator's PATH.
+6. (For `ingress.type: istio`) an Istio Gateway already exists and
    matches the host you configure. The chart only creates the
    `VirtualService` binding it to your run.
 

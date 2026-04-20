@@ -198,6 +198,7 @@ def _parse_aks(azure: dict[str, Any]) -> AksConfig:
         namespace=_clean_str(section.get("namespace")) or "perf",
         service_account=_clean_str(section.get("service_account")) or "osdu-perf-runner",
         workload_identity_client_id=_clean_str(section.get("workload_identity_client_id")),
+        create_service_account=_as_bool(section.get("create_service_account", False)),
         web_ui=_as_bool(section.get("web_ui", False)),
         ingress=_parse_aks_ingress(section.get("ingress")),
     )

@@ -21,6 +21,10 @@
 #   namespace: "perf"               # default; pods + Job land here
 #   service_account: "osdu-perf-runner"
 #   workload_identity_client_id: "" # client_id of the UAMI federated to <ns>:<sa>
+#   create_service_account: false   # true = chart creates the ServiceAccount with the
+#                                   # workload-identity annotation (use on a fresh cluster
+#                                   # where the SA does not yet exist; overridden by
+#                                   # `--create-service-account` CLI flag).
 #   web_ui: false                   # true = launch Locust web UI on master pod port 8089
 #                                   # (overridden by `--web-ui` CLI flag)
 #   container_registry:

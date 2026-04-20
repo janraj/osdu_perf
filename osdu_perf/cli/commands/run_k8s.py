@@ -72,6 +72,7 @@ def run(args: argparse.Namespace) -> int:
         web_ui=args.web_ui or config.aks.web_ui,
         azure_config_relpath=azure_config_relpath,
         namespace_override=args.namespace,
+        create_service_account=args.create_service_account or config.aks.create_service_account,
     )
     result = K8sRunner(config).run(inputs)
     _print_run_summary(result)

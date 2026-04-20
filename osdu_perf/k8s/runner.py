@@ -51,6 +51,7 @@ class K8sRunInputs:
     web_ui: bool = False
     azure_config_relpath: str | None = None
     namespace_override: str | None = None
+    create_service_account: bool = False
 
 
 class K8sRunner:
@@ -94,12 +95,23 @@ class K8sRunner:
         self._fetch_credentials()
         self._ensure_namespace(namespace)
 
+        # 2b) Preflight: confirm the ServiceAccount exists unless we
+        # are about to create it via the chart. Fails fast with a
+        # clear remediation hint instead of a 5-minute helm timeout.
+        create_sa = (
+            inputs.create_service_account
+            or self._config.aks.create_service_account
+        )
+        if not create_sa:
+            self._require_service_account(namespace)
+
         # 3) Helm install / upgrade
         values = self._build_values(
             inputs=inputs,
             run_name=run_name,
             namespace=namespace,
             image_ref=build_result.image_ref,
+            create_service_account=create_sa,
         )
         self._helm_upgrade(run_name, namespace, values)
 
@@ -171,6 +183,44 @@ class K8sRunner:
                 "metadata:\n"
                 f"  name: {namespace}\n"
             ),
+        )
+
+    def _require_service_account(self, namespace: str) -> None:
+        """Verify that the configured ServiceAccount exists in *namespace*.
+
+        Raises :class:`ConfigError` with a copy-pasteable remediation if
+        it does not, instead of letting helm hang for 5 minutes on a
+        ``serviceaccount \"...\" not found`` ReplicaSet event.
+        """
+        sa = self._config.aks.service_account
+        client_id = self._config.aks.workload_identity_client_id or ""
+        result = cluster.run(
+            ["kubectl", "get", "serviceaccount", sa, "-n", namespace, "--ignore-not-found"],
+            capture=True,
+            check=False,
+        )
+        stdout = (result.stdout or "").strip()
+        if result.returncode == 0 and stdout:
+            return
+        raise ConfigError(
+            f"ServiceAccount '{namespace}/{sa}' not found on the cluster.\n"
+            "  Either:\n"
+            "    (a) re-run with '--create-service-account' (or set\n"
+            "        aks.create_service_account: true in azure_config.yaml) so the\n"
+            "        bundled Helm chart creates it with the Workload Identity\n"
+            "        annotation, OR\n"
+            "    (b) create it once manually:\n"
+            "          kubectl apply -f - <<'EOF'\n"
+            "          apiVersion: v1\n"
+            "          kind: ServiceAccount\n"
+            "          metadata:\n"
+            f"            name: {sa}\n"
+            f"            namespace: {namespace}\n"
+            "            annotations:\n"
+            f"              azure.workload.identity/client-id: {client_id}\n"
+            "          EOF\n"
+            "  Also confirm the UAMI has a federated credential bound to\n"
+            f"  'system:serviceaccount:{namespace}:{sa}' and 'AcrPull' on the registry."
         )
 
     def _helm_upgrade(
@@ -264,6 +314,7 @@ class K8sRunner:
         run_name: str,
         namespace: str,
         image_ref: str,
+        create_service_account: bool = False,
     ) -> dict[str, Any]:
         aks = self._config.aks
         repo, _, tag = image_ref.rpartition(":")
@@ -288,7 +339,7 @@ class K8sRunner:
             },
             "serviceAccount": {
                 "name": aks.service_account,
-                "create": False,
+                "create": bool(create_service_account),
                 "workloadIdentityClientId": aks.workload_identity_client_id or "",
             },
             "mode": "webui" if inputs.web_ui else "headless",

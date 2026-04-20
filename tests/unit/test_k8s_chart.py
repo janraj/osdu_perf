@@ -101,6 +101,32 @@ def test_build_values_webui_switches_mode():
     assert values["env"]["WEB_UI"] == "true"
 
 
+def test_build_values_serviceaccount_create_default_false():
+    runner = K8sRunner(_app_config())
+    values = runner._build_values(
+        inputs=_inputs(),
+        run_name="r",
+        namespace="perf",
+        image_ref="myacr.azurecr.io/osdu-perf:abc",
+    )
+    assert values["serviceAccount"]["create"] is False
+    assert values["serviceAccount"]["name"] == "osdu-perf-runner"
+    assert values["serviceAccount"]["workloadIdentityClientId"] == "cid"
+
+
+def test_build_values_serviceaccount_create_true_when_flag_set():
+    runner = K8sRunner(_app_config())
+    values = runner._build_values(
+        inputs=_inputs(create_service_account=True),
+        run_name="r",
+        namespace="perf",
+        image_ref="myacr.azurecr.io/osdu-perf:abc",
+        create_service_account=True,
+    )
+    assert values["serviceAccount"]["create"] is True
+    assert values["serviceAccount"]["workloadIdentityClientId"] == "cid"
+
+
 def test_build_values_istio_ingress_renders_fields():
     runner = K8sRunner(
         _app_config(

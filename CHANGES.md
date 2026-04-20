@@ -1,5 +1,74 @@
 # Changelog
 
+## 2.2.4 — One-shot setup hooks now actually fire once per worker
+
+### Fixes
+
+* **`ServiceRegistry.discover()` re-executed the test file on every
+  `User.on_start`**, silently resetting any class-level state (e.g.
+  one-shot setup guards) and turning a single intended setup call into
+  one call per spawned user. The registry now caches the loaded module
+  by absolute path in a class-level dict, so repeated `discover()`
+  invocations inside the same process reuse the already-executed
+  module. Tests that rely on `_setup_done = True` class attributes (or
+  any other module-level state) now behave as documented.
+* **`storage_get_record_by_id` sample**: the prehook guard is now
+  stashed on the `osdu_perf` module (loaded exactly once per process),
+  not on the test class. Setup runs **once per worker process**
+  regardless of the user count — a 500-user run with 10 workers does
+  10 legaltag/record upserts, not 500.
+
+## 2.2.3 — New `storage_get_record_by_id` sample
+
+### Added
+
+* **`osdu_perf init --sample=storage_get_record_by_id`** scaffolds a
+  Storage GET-Record-by-ID workload. The sample's `prehook` runs
+  exactly once per worker process (guarded by a class-level lock) and:
+  1. `POST /api/legal/v1/legaltags` to create
+     `<partition>-public-usa-check-1` (409 = already exists, treated
+     as success).
+  2. `PUT /api/storage/v2/records` to upsert one or more
+     `master-data--Well` records with ids
+     `<partition>:master-data--Well:perf{1..N}`.
+
+  After setup, `execute` issues `GET /api/storage/v2/records/<id>` on
+  a randomly chosen seeded id. Configurable via env vars
+  `STORAGE_LEGALTAG_NAME`, `STORAGE_RECORD_KIND`,
+  `STORAGE_RECORD_ID_PREFIX`, `STORAGE_RECORD_COUNT`.
+* Setup calls go to Locust under separate stat names
+  (`storage_get_record_by_id__setup_legaltag` /
+  `__setup_records`) so they don't pollute GET latency stats.
+
+## 2.2.2 — Bootstrap a fresh AKS cluster without manual SA YAML
+
+### Added
+
+* **`--create-service-account` flag on `osdu_perf run k8s`** (and matching
+  `aks.create_service_account: true` in `azure_config.yaml`). When set,
+  the bundled Helm chart creates the `osdu-perf-runner` ServiceAccount in
+  the target namespace with the `azure.workload.identity/client-id`
+  annotation derived from `aks.workload_identity_client_id`. Use this on a
+  brand-new cluster where the SA does not yet exist; on shared clusters
+  the default (`false`) keeps the chart from touching an SA you
+  already manage.
+* **Fail-fast preflight check** in `K8sRunner`. Before the helm install,
+  the runner now `kubectl get serviceaccount`s the configured SA. If it
+  is missing and `--create-service-account` was not requested, the run
+  aborts immediately with a copy-pasteable remediation block — instead
+  of letting helm hang for the 5-minute `--wait --timeout` only to
+  surface a cryptic `serviceaccount "..." not found` ReplicaSet event.
+
+### Changed
+
+* `K8sRunInputs` gained a `create_service_account: bool` field;
+  `K8sRunner._build_values` now plumbs that through to
+  `serviceAccount.create` in the chart values.
+* `AksConfig` gained a `create_service_account: bool` field; loader
+  reads the new YAML key, scaffolding template documents it.
+* Readme “Cluster-side prerequisites” section updated to mention the
+  flag and the new bootstrap path.
+
 ## 2.2.1 — Bug fixes on top of 2.2.0
 
 ### Fixes

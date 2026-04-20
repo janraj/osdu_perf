@@ -30,6 +30,12 @@ SAMPLES: dict[str, Sample] = {
         endpoint="/api/search/v2/query",
         class_name="SearchQueryService",
     ),
+    "storage_get_record_by_id": Sample(
+        name="storage_get_record_by_id",
+        title="Storage GET Record By ID",
+        endpoint="/api/storage/v2/records/{id}",
+        class_name="StorageGetRecordByIdService",
+    ),
 }
 
 

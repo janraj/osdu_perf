@@ -20,6 +20,7 @@ class BaseService(ABC):
 
     def __init__(self, client: Any = None) -> None:
         self.client = client
+        self.test_run_id: str = ""
 
     @abstractmethod
     def execute(
