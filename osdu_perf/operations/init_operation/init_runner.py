@@ -403,13 +403,10 @@ class OSDUUser(HttpUser):
     def on_start(self):
         """Called when a user starts - performs setup"""
 
-        # Access OSDU parameters from Locust parsed options or environment variables.
-        # The available APIs are detailed in the README and library documentation.
-        # This code generation accelerates development by removing the need to manually refer to the library docs.
-        # locust client is available as self.client. Also have self.get, self.put, self.post wrapper API to use
-        # One time setup can be performed here.
-        # each other load function must have task decorator.
-        # token is supplied via environment variable which is not passed to azure load test. 
+        # The osdu_perf  automatically injects all required headers
+        # (Authorization, data-partition-id, Content-Type, correlation-id)
+        # into every outgoing request. You do NOT need to pass headers manually.
+        # Just write your tests — the framework handles the rest. if there is special case, you can add that alone in the header
 
         self.config_obj = PerformanceUser(self.environment)
         self.partition = self.config_obj.get_partition()
@@ -431,8 +428,8 @@ class OSDUUser(HttpUser):
     @tag("{service_name}")
     @task(1)
     def check_service_health(self):
-        # *** Simple and clean consumer call ***
-        response = self.client.get("/api/storage/v2/liveness_check", headers=self.headers)
+        # No need to pass headers — middleware auto-injects auth, partition, correlation-id
+        response = self.client.get("/api/storage/v2/liveness_check")
         self.logger.info(f"Health check status: ")
 
 '''
