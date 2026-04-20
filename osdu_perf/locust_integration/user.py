@@ -1,4 +1,4 @@
-# osdu_perf/locust/user_base.py
+# osdu_perf/locust_integration/user.py
 from locust import HttpUser, task, events, between
 from ..operations.service_orchestrator import ServiceOrchestrator
 from ..operations.input_handler import   InputHandler
