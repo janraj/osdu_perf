@@ -138,6 +138,12 @@ Examples:
         azure_parser.add_argument("--subscription-id", help="Azure subscription ID (overrides config.yaml)")
         azure_parser.add_argument("--resource-group", help="Azure resource group name (overrides config.yaml)")
         azure_parser.add_argument("--location", help="Azure region (e.g., eastus, westus2) (overrides config.yaml)")
+        azure_parser.add_argument(
+            "--directory",
+            "-d",
+            default="./perf_tests",
+            help="Directory containing test files to upload (default: ./perf_tests)",
+        )
 
         # Advanced Options
         azure_parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
