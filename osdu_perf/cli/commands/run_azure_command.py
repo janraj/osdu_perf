@@ -1,12 +1,47 @@
+import argparse
 import sys
 import time
 from ..command_base import Command
+from ..argument_mixins import (
+    OsduConnectionMixin,
+    LocustParamsMixin,
+    ScenarioMixin,
+    SystemConfigMixin,
+    VerboseMixin,
+)
 from ...utils.logger import get_logger
 
-class AzureLoadTestCommand(Command):
+
+class AzureLoadTestCommand(
+    Command, OsduConnectionMixin, LocustParamsMixin,
+    ScenarioMixin, SystemConfigMixin, VerboseMixin,
+):
     """Command for running Azure Load Testing."""
+
+    name = "azure_load_test"
+    help = "Run performance tests on Azure Load Testing service"
+    parent_chain = ("run",)
+
     def __init__(self, logger):
         self.logger = logger
+
+    def register_args(self, parser: argparse.ArgumentParser) -> None:
+        # Shared argument groups
+        self.add_system_config_default(parser)
+        self.add_scenario_arg(parser)
+        self.add_osdu_args(parser)
+        self.add_locust_args(parser)
+        self.add_verbose_arg(parser)
+
+        # Azure-specific arguments
+        parser.add_argument('--subscription-id', help='Azure subscription ID (overrides config.yaml)')
+        parser.add_argument('--resource-group', help='Azure resource group name (overrides config.yaml)')
+        parser.add_argument('--location', help='Azure region (e.g., eastus, westus2) (overrides config.yaml)')
+        parser.add_argument(
+            '--directory', '-d',
+            default='./perf_tests',
+            help='Directory containing test files to upload (default: ./perf_tests)',
+        )
 
     def validate_args(self, args) -> bool:
         self.logger.info("Validating Azure Load Test command arguments...")

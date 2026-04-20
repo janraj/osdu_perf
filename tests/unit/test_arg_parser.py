@@ -1,44 +1,42 @@
 """
-Unit tests for the ArgParser class.
+Unit tests for the CLI argument parsing via CommandRegistry.
 
-Tests the argument parsing functionality and helper methods.
+Tests the argument parsing functionality built by CommandRegistry.build_parser().
 """
 
 import pytest
 from unittest.mock import Mock
 from argparse import ArgumentParser
 
-from osdu_perf.cli.arg_parser import ArgParser
+# Import command modules to trigger __init_subclass__ auto-registration
+from osdu_perf.cli.commands import init_command, version_command, run_local_command, run_azure_command  # noqa: F401
+from osdu_perf.cli.command_registry import CommandRegistry
 
 
-class TestArgParserClass:
-    """Test cases for the ArgParser class."""
+class TestCommandRegistryParser:
+    """Test cases for the parser built by CommandRegistry."""
 
     def setup_method(self):
         """Set up test fixtures."""
         self.logger = Mock()
-        self.arg_parser = ArgParser(self.logger)
+        self.registry = CommandRegistry(self.logger)
 
-    def test_initialization(self):
-        """Test ArgParser initialization."""
-        assert self.arg_parser.logger == self.logger
-        assert self.arg_parser.description == "OSDU Performance Testing Framework CLI"
-        assert self.arg_parser.parser is not None
-        assert self.arg_parser.subparsers is not None
+    def _build(self) -> ArgumentParser:
+        return self.registry.build_parser()
 
-    def test_create_parser_returns_argument_parser(self):
-        """Test that create_parser returns an ArgumentParser."""
-        parser = self.arg_parser.create_parser()
+    def test_build_parser_returns_argument_parser(self):
+        """Test that build_parser returns an ArgumentParser."""
+        parser = self._build()
         assert isinstance(parser, ArgumentParser)
 
     def test_parser_description(self):
         """Test parser has correct description."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         assert parser.description == "OSDU Performance Testing Framework CLI"
 
     def test_subcommands_exist(self):
         """Test that required subcommands exist by trying to parse them."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         # Test that the main commands work without error
         try:
@@ -69,7 +67,7 @@ class TestArgParserClass:
 
     def test_init_command_parser(self):
         """Test init command argument parsing."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         # Test with valid arguments
         args = parser.parse_args(['init', 'storage'])
@@ -83,14 +81,14 @@ class TestArgParserClass:
 
     def test_version_command_parser(self):
         """Test version command argument parsing."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args(['version'])
         assert args.command == 'version'
 
     def test_run_local_command_parser(self):
         """Test run local command argument parsing."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         # Test with required arguments
         args = parser.parse_args([
@@ -108,7 +106,7 @@ class TestArgParserClass:
 
     def test_run_local_command_with_all_options(self):
         """Test run local command with all optional arguments."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'local',
@@ -134,7 +132,7 @@ class TestArgParserClass:
 
     def test_run_azure_command_parser(self):
         """Test run azure_load_test command argument parsing."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'azure_load_test',
@@ -152,7 +150,7 @@ class TestArgParserClass:
 
     def test_run_azure_command_with_all_options(self):
         """Test run azure_load_test command with all optional arguments."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'azure_load_test',
@@ -184,7 +182,7 @@ class TestArgParserClass:
 
     def test_osdu_connection_args_helper_in_local(self):
         """Test that OSDU connection args helper is used in local command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'local',
@@ -194,7 +192,7 @@ class TestArgParserClass:
             '--partition', 'example-partition'
         ])
         
-        # These arguments should be available due to _add_osdu_connection_args
+        # These arguments should be available due to OsduConnectionMixin
         assert hasattr(args, 'host')
         assert hasattr(args, 'partition')
         assert args.host == 'https://example.com'
@@ -202,7 +200,7 @@ class TestArgParserClass:
 
     def test_osdu_connection_args_helper_in_azure(self):
         """Test that OSDU connection args helper is used in azure command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'azure_load_test',
@@ -213,7 +211,7 @@ class TestArgParserClass:
             '--partition', 'example-partition'
         ])
         
-        # These arguments should be available due to _add_osdu_connection_args
+        # These arguments should be available due to OsduConnectionMixin
         assert hasattr(args, 'host')
         assert hasattr(args, 'partition')
         assert args.host == 'https://example.com'
@@ -221,7 +219,7 @@ class TestArgParserClass:
 
     def test_config_arg_helper_in_local(self):
         """Test that scenario arg helper is used in local command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'local',
@@ -236,7 +234,7 @@ class TestArgParserClass:
 
     def test_config_arg_helper_in_azure(self):
         """Test that scenario arg helper is used in azure command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'azure_load_test',
@@ -252,7 +250,7 @@ class TestArgParserClass:
 
     def test_invalid_command_parsing(self):
         """Test parsing invalid commands."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         # Test invalid main command
         with pytest.raises(SystemExit):
@@ -264,7 +262,7 @@ class TestArgParserClass:
 
     def test_argument_types(self):
         """Test that arguments have correct types."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
         
         args = parser.parse_args([
             'run', 'local',
@@ -282,7 +280,7 @@ class TestArgParserClass:
 
     def test_multiple_scenarios_blocked_in_local(self):
         """Test parser blocks multiple scenario values for local command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
 
         with pytest.raises(SystemExit):
             parser.parse_args([
@@ -293,7 +291,7 @@ class TestArgParserClass:
 
     def test_multiple_scenarios_blocked_in_azure(self):
         """Test parser blocks multiple scenario values for azure command."""
-        parser = self.arg_parser.create_parser()
+        parser = self._build()
 
         with pytest.raises(SystemExit):
             parser.parse_args([
@@ -303,6 +301,26 @@ class TestArgParserClass:
                 '--token', 'test-token',
                 '--subscription-id', 'test-sub-id'
             ])
+
+    def test_resolve_returns_correct_command(self):
+        """Test that resolve returns the correct command instance."""
+        parser = self._build()
+        
+        args = parser.parse_args(['init', 'storage'])
+        cmd = self.registry.resolve(args)
+        assert type(cmd).__name__ == 'InitCommand'
+        
+        args = parser.parse_args(['version'])
+        cmd = self.registry.resolve(args)
+        assert type(cmd).__name__ == 'VersionCommand'
+        
+        args = parser.parse_args(['run', 'local', '--scenario', 's', '--token', 't'])
+        cmd = self.registry.resolve(args)
+        assert type(cmd).__name__ == 'LocalTestCommand'
+        
+        args = parser.parse_args(['run', 'azure_load_test', '--scenario', 's', '--token', 't'])
+        cmd = self.registry.resolve(args)
+        assert type(cmd).__name__ == 'AzureLoadTestCommand'
 
 
 if __name__ == '__main__':

@@ -161,8 +161,6 @@ class LocalTestRunner:
         self.logger.info("📋 Available bundled locustfiles:")
         self.logger.info("  • Default comprehensive locustfile (includes all OSDU services)")
         self.logger.info("  • Use --locustfile option to specify a custom file")
-
-
     def prepare_locustfile(self, args) -> str:
         """
         Prepare the locustfile for execution.

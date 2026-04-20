@@ -5,8 +5,9 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from osdu_perf.cli.commands.version_command import VersionCommand
 from osdu_perf.cli.commands.init_command import InitCommand
-from osdu_perf.cli.command_factory import CommandFactory
-from osdu_perf.cli.command_invoker import CommandInvoker
+from osdu_perf.cli.commands.run_local_command import LocalTestCommand
+from osdu_perf.cli.commands.run_azure_command import AzureLoadTestCommand
+from osdu_perf.cli.command_registry import CommandRegistry
 
 
 class TestVersionCommand:
@@ -126,138 +127,70 @@ class TestInitCommand:
         assert result == 1
 
 
-class TestCommandFactory:
-    """Test cases for CommandFactory."""
+class TestCommandRegistry:
+    """Test cases for CommandRegistry."""
     
     def setup_method(self):
         """Setup test fixtures."""
         self.logger_mock = Mock()
-        self.factory = CommandFactory(self.logger_mock)
+        self.registry = CommandRegistry(self.logger_mock)
     
-    def test_initialization(self):
-        """Test CommandFactory initialization."""
-        assert hasattr(self.factory, 'logger')
-        assert hasattr(self.factory, '_commands')
-        assert 'init' in self.factory._commands
-        assert 'local' in self.factory._commands
-        assert 'azure_load_test' in self.factory._commands
-        assert 'version' in self.factory._commands
-        
-        # Check that initialization log was called
-        self.logger_mock.info.assert_called()
-    
-    def test_create_command_init(self):
-        """Test creating init command."""
-        command = self.factory.create_command('init')
-        
-        assert command is not None
-        assert isinstance(command, InitCommand)
-        assert command.logger == self.logger_mock
-    
-    def test_create_command_version(self):
-        """Test creating version command."""
-        command = self.factory.create_command('version')
-        
-        assert command is not None
-        assert isinstance(command, VersionCommand)
-        assert command.logger == self.logger_mock
-    
-    def test_create_command_unknown(self):
-        """Test creating unknown command returns None."""
-        command = self.factory.create_command('unknown_command')
-        
-        assert command is None
-        self.logger_mock.error.assert_called_with("Unknown command class for: unknown_command")
-    
-    def test_create_command_logs_creation(self):
-        """Test that command creation is logged."""
-        self.factory.create_command('version')
-        
-        # Check that creation was logged
-        calls = [call.args[0] for call in self.logger_mock.info.call_args_list]
-        creation_calls = [call for call in calls if "Creating command: version" in call]
-        assert len(creation_calls) >= 1
-    
-    def test_get_available_commands(self):
-        """Test getting available commands."""
-        commands = self.factory.get_available_commands()
-        
-        assert isinstance(commands, list)
-        assert 'init' in commands
-        assert 'local' in commands
-        assert 'azure_load_test' in commands
-        assert 'version' in commands
+    def test_build_parser_returns_parser(self):
+        """Test build_parser returns an ArgumentParser."""
+        parser = self.registry.build_parser()
+        assert parser is not None
 
+    def test_registered_commands_include_all(self):
+        """Test that all expected commands are auto-registered."""
+        from osdu_perf.cli.command_base import Command
+        names = [cls.name for cls in Command._registry]
+        assert 'init' in names
+        assert 'version' in names
+        assert 'local' in names
+        assert 'azure_load_test' in names
 
-class TestCommandInvoker:
-    """Test cases for CommandInvoker."""
-    
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.logger_mock = Mock()
-        self.invoker = CommandInvoker(self.logger_mock)
-    
-    def test_initialization(self):
-        """Test CommandInvoker initialization."""
-        assert self.invoker.logger == self.logger_mock
-        assert hasattr(self.invoker, 'factory')
-        assert isinstance(self.invoker.factory, CommandFactory)
-    
-    def test_execute_command_success(self):
-        """Test successful command execution."""
-        with patch.object(self.invoker.factory, 'create_command') as mock_create:
-            command_mock = Mock()
-            command_mock.execute.return_value = 0
-            mock_create.return_value = command_mock
-            
-            args = Mock()
-            
-            result = self.invoker.execute_command('version', args)
-            
-            mock_create.assert_called_once_with('version')
-            command_mock.execute.assert_called_once_with(args)
+    def test_resolve_init_command(self):
+        """Test resolving the init command."""
+        parser = self.registry.build_parser()
+        args = parser.parse_args(['init', 'storage'])
+        cmd = self.registry.resolve(args)
+        assert isinstance(cmd, InitCommand)
+
+    def test_resolve_version_command(self):
+        """Test resolving the version command."""
+        parser = self.registry.build_parser()
+        args = parser.parse_args(['version'])
+        cmd = self.registry.resolve(args)
+        assert isinstance(cmd, VersionCommand)
+
+    def test_resolve_local_command(self):
+        """Test resolving the local command."""
+        parser = self.registry.build_parser()
+        args = parser.parse_args(['run', 'local', '--scenario', 's', '--token', 't'])
+        cmd = self.registry.resolve(args)
+        assert isinstance(cmd, LocalTestCommand)
+
+    def test_resolve_azure_command(self):
+        """Test resolving the azure_load_test command."""
+        parser = self.registry.build_parser()
+        args = parser.parse_args(['run', 'azure_load_test', '--scenario', 's', '--token', 't'])
+        cmd = self.registry.resolve(args)
+        assert isinstance(cmd, AzureLoadTestCommand)
+
+    def test_resolve_and_execute_version(self):
+        """Test resolving and executing the version command."""
+        parser = self.registry.build_parser()
+        args = parser.parse_args(['version'])
+        cmd = self.registry.resolve(args)
+        with patch.object(cmd, 'version_command'):
+            result = cmd.execute(args)
             assert result == 0
-    
-    def test_execute_command_not_found(self):
-        """Test command execution when command is not found."""
-        with patch.object(self.invoker.factory, 'create_command') as mock_create:
-            with patch.object(self.invoker.factory, 'get_available_commands') as mock_get_commands:
-                mock_create.return_value = None
-                mock_get_commands.return_value = ['init', 'version', 'local']
-                
-                args = Mock()
-                
-                result = self.invoker.execute_command('unknown', args)
-                
-                mock_create.assert_called_once_with('unknown')
-                self.logger_mock.error.assert_called_once()
-                assert result == 1
-    
-    def test_execute_command_execution_failure(self):
-        """Test command execution when execution fails."""
-        with patch.object(self.invoker.factory, 'create_command') as mock_create:
-            command_mock = Mock()
-            command_mock.execute.return_value = 2
-            mock_create.return_value = command_mock
-            
-            args = Mock()
-            
-            result = self.invoker.execute_command('init', args)
-            
-            mock_create.assert_called_once_with('init')
-            command_mock.execute.assert_called_once_with(args)
-            assert result == 2
-    
-    def test_execute_command_logs_invocation(self):
-        """Test that command execution is logged."""
-        with patch.object(self.invoker.factory, 'create_command') as mock_create:
-            command_mock = Mock()
-            command_mock.execute.return_value = 0
-            mock_create.return_value = command_mock
-            
-            args = Mock()
-            
-            self.invoker.execute_command('version', args)
+
+    def test_invalid_command_raises_system_exit(self):
+        """Test that invalid commands raise SystemExit."""
+        parser = self.registry.build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(['unknown_command'])
             
             # Check that invocation was logged
             calls = [call.args[0] for call in self.logger_mock.info.call_args_list]

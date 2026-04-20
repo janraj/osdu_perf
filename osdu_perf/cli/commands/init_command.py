@@ -1,10 +1,20 @@
+import argparse
 from ..command_base import Command
+
 
 class InitCommand(Command):
     """Command for initializing new performance testing projects."""
 
+    name = "init"
+    help = "Initialize a new performance testing project"
+    parent_chain = ()
+
     def __init__(self, logger):
         self.logger = logger
+
+    def register_args(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("service_name", help="Name of the OSDU service to test (e.g., storage, search)")
+        parser.add_argument("--force", action="store_true", help="Force overwrite existing files")
     
     def validate_args(self, args) -> bool:
         if not hasattr(args, 'service_name') or not args.service_name:
