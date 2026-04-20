@@ -8,7 +8,7 @@ from .operations.input_handler import InputHandler
 from .operations.auth import AzureTokenManager
 from .utils.environment import detect_environment
 from .operations.init_operation import InitRunner
-from .locust_integration.user_base import PerformanceUser
+from .locust_integration.user import PerformanceUser
 
 
 __version__ = "1.0.42"

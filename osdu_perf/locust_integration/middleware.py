@@ -1,4 +1,4 @@
-# osdu_perf/locust_integration/request_interceptor.py
+# osdu_perf/locust_integration/middleware.py
 """
 Per-request correlation-id enrichment via Locust HttpSession monkey-patch.
 
