@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 from .command_base import Command
 from . import commands  # noqa: F401  — triggers __init_subclass__ registration
@@ -56,7 +58,12 @@ Examples:
     @staticmethod
     def resolve(args) -> Command:
         """Return the Command instance that was set by ``set_defaults``."""
-        return getattr(args, "_command_instance")
+        command = getattr(args, "_command_instance", None)
+        if command is None:
+            raise SystemExit(
+                "No command resolved. Run with --help to see available commands."
+            )
+        return command
 
     # ------------------------------------------------------------------
     # Internal helpers

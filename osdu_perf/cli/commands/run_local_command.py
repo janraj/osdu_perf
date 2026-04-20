@@ -34,8 +34,7 @@ class LocalTestCommand(
         # Local-only arguments
         parser.add_argument('--locustfile', '-f', help='Specific locustfile to use (optional)')
         parser.add_argument('--list-locustfiles', action='store_true', help='List available bundled locustfiles')
-        parser.add_argument('--headless', action='store_true', help='Run in headless mode (overrides web UI)')
-        parser.add_argument('--web-ui', action='store_true', default=True, help='Run with web UI (default)')
+        parser.add_argument('--headless', action='store_true', help='Run in headless mode (no web UI)')
 
     def validate_args(self, args) -> bool:
         if not hasattr(args, 'scenario') or not args.scenario:

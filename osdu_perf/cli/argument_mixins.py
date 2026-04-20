@@ -8,7 +8,7 @@ class OsduConnectionMixin:
     def add_osdu_args(parser: argparse.ArgumentParser):
         parser.add_argument('--host', help='OSDU host URL (overrides config.yaml)')
         parser.add_argument('--partition', '-p', help='OSDU data partition ID (overrides config.yaml)')
-        parser.add_argument('--token', help='Bearer token for OSDU authentication (required)')
+        parser.add_argument('--token', help='Bearer token for OSDU authentication (optional, falls back to Azure CLI credential)')
         parser.add_argument('--app-id', help='Azure AD Application ID (overrides config.yaml)')
         parser.add_argument('--performance-tier', dest='performance_tier',
                             help='Test profile/performance tier from test_config.yaml (overrides system_config.yaml performance_tier)')

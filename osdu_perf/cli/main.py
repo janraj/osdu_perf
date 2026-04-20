@@ -14,11 +14,7 @@ def main():
     registry = CommandRegistry(logger)
     parser = registry.build_parser()
     args = parser.parse_args()
-    
-    if not args.command:
-        parser.print_help()
-        return
-    
+
     # Resolve and execute — no if/else routing
     command = registry.resolve(args)
     exit_code = command.execute(args)
