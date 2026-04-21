@@ -2,10 +2,10 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class TestMetadata:
     """Immutable metadata for a single test run."""
     test_run_id: str
@@ -96,4 +96,4 @@ class TestReport:
     metadata: TestMetadata
     endpoint_stats: List[EndpointStat] = field(default_factory=list)
     exceptions: List[ExceptionRecord] = field(default_factory=list)
-    summary: TestSummary = None
+    summary: Optional[TestSummary] = None

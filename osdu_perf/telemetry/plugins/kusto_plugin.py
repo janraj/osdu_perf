@@ -120,6 +120,9 @@ def _create_csv_string(data_list, columns):
 class KustoPlugin(TelemetryPlugin):
     """Publishes test metrics to Azure Data Explorer (Kusto)."""
 
+    def __init__(self):
+        self._kusto_cfg: dict = {}
+
     def name(self) -> str:
         return "kusto"
 
@@ -127,18 +130,34 @@ class KustoPlugin(TelemetryPlugin):
         kusto_cfg = config.get("kusto", {})
         if not kusto_cfg:
             return False
-        # Explicit toggle takes precedence
+        # Explicit toggle: enabled: false always disables
         enabled_flag = kusto_cfg.get("enabled")
-        if enabled_flag is not None:
-            return bool(enabled_flag)
-        # Fallback: enabled if cluster AND database are explicitly configured
+        if enabled_flag is not None and not bool(enabled_flag):
+            return False
+        # Cluster is always required — prevents silent fallback to default cluster
         cluster = (kusto_cfg.get("cluster") or "").strip()
-        database = (kusto_cfg.get("database") or "").strip()
-        return bool(cluster and database)
+        if not cluster:
+            if enabled_flag:
+                logger.warning("Kusto enabled=true but 'cluster' is missing — plugin disabled")
+            return False
+        # Store config for use in publish() — no need to reach back into PerformanceUser
+        self._kusto_cfg = dict(kusto_cfg)
+        return True
 
     def publish(self, report: TestReport) -> None:
+        try:
+            self._publish_impl(report)
+        except ImportError:
+            logger.error(
+                "Kusto SDK not installed (azure-kusto-data / azure-kusto-ingest) — metrics NOT sent",
+                exc_info=True,
+            )
+        except Exception:
+            logger.error("Kusto plugin failed — metrics NOT sent", exc_info=True)
+
+    def _publish_impl(self, report: TestReport) -> None:
         # Lazy imports — only needed when Kusto is actually used
-        from azure.kusto.ingest import QueuedIngestClient, IngestionProperties
+        from azure.kusto.ingest import QueuedIngestClient
         from azure.kusto.data import KustoConnectionStringBuilder, DataFormat
 
         total_start = time.time()
@@ -374,22 +393,13 @@ class KustoPlugin(TelemetryPlugin):
     # Config resolution
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _resolve_config() -> dict:
-        """Resolve Kusto config from InputHandler.
+    def _resolve_config(self) -> dict:
+        """Resolve Kusto config from the config stored during is_enabled().
 
         Only 'cluster' is required. 'database' defaults to 'adme-performance-db'.
         'ingest_uri' is auto-derived from cluster hostname.
         """
-        from ...locust_integration.user import PerformanceUser
-        ih = PerformanceUser._input_handler_instance
-        if ih:
-            cfg = ih.get_kusto_config()
-        else:
-            cfg = {
-                "cluster": "https://adme-performance.eastus.kusto.windows.net",
-                "database": "adme-performance-db",
-            }
+        cfg = dict(self._kusto_cfg)
 
         # Ensure database has a default
         if not cfg.get("database"):

@@ -88,12 +88,18 @@ class TelemetryDispatcher:
             logger.error("Failed to build telemetry report", exc_info=True)
             return
 
-        logger.info(
-            f"TestReport built: {len(report.endpoint_stats)} endpoints, "
-            f"{len(report.exceptions)} errors, "
-            f"duration={report.summary.test_duration_seconds:.1f}s, "
-            f"total_requests={report.summary.total_requests}"
-        )
+        if report.summary:
+            logger.info(
+                f"TestReport built: {len(report.endpoint_stats)} endpoints, "
+                f"{len(report.exceptions)} errors, "
+                f"duration={report.summary.test_duration_seconds:.1f}s, "
+                f"total_requests={report.summary.total_requests}"
+            )
+        else:
+            logger.info(
+                f"TestReport built: {len(report.endpoint_stats)} endpoints, "
+                f"{len(report.exceptions)} errors, no summary"
+            )
 
         failed = []
         for plugin in self._plugins:
@@ -127,11 +133,18 @@ class TelemetryDispatcher:
 
         adme = _get_adme_name(environment.host)
         partition = input_handler.partition if input_handler else os.getenv("PARTITION", "Unknown")
-        performance_tier = input_handler.get_osdu_performance_tier(
-            os.getenv("PERFORMANCE_TIER", os.getenv("SKU", None))
+        performance_tier = (
+            input_handler.get_osdu_performance_tier(os.getenv("PERFORMANCE_TIER", os.getenv("SKU", None)))
+            if input_handler else os.getenv("PERFORMANCE_TIER", os.getenv("SKU", "Unknown"))
         )
-        version = input_handler.get_osdu_version(os.getenv("VERSION", None))
-        test_scenario = input_handler.get_test_scenario(os.getenv("LOCUST_TAGS", None))
+        version = (
+            input_handler.get_osdu_version(os.getenv("VERSION", None))
+            if input_handler else os.getenv("VERSION", "Unknown")
+        )
+        test_scenario = (
+            input_handler.get_test_scenario(os.getenv("LOCUST_TAGS", None))
+            if input_handler else os.getenv("LOCUST_TAGS", "Unknown")
+        )
 
         stats = environment.runner.stats
         start_time = getattr(environment.runner, 'start_time', None)

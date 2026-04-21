@@ -38,13 +38,13 @@ osdu_environment:
   version: "25.2.35"
 
 # OSDU deployment details (optional - used for metrics collection)
-# Metrics Collection Configuration  [Optional] 
+# Metrics Collection Configuration  [Optional]
 # metrics_collector:
-  # Kusto (Azure Data Explorer) Configuration
+  # Kusto (Azure Data Explorer) — only 'cluster' is required
   # kusto:
-  #  cluster: ""
-  #  database: ""
-  #  ingest_uri: ""
+  #   cluster: ""                # required — e.g. https://your-cluster.eastus.kusto.windows.net
+  #   database: ""               # optional — defaults to "adme-performance-db"
+  #   # ingest_uri is auto-derived from cluster — no need to set it
 
 # Test Configuration (Must)
 test_settings:
@@ -222,12 +222,13 @@ osdu_environment:
     performance_tier: "Standard"
   version: "25.2.35"
 
-# Metrics Collection Configuration  
+# Metrics Collection Configuration (optional)
+# Only 'cluster' is required — database defaults to 'adme-performance-db',
+# ingest_uri is auto-derived, auth is auto-detected.
 metrics_collector:
   kusto:
     cluster: "https://your-kusto-cluster.eastus.kusto.windows.net"
-    database: "your-database"
-    ingest_uri: "https://ingest-your-kusto.eastus.kusto.windows.net"
+    database: "your-database"               # optional — defaults to "adme-performance-db"
 
 # Test Configuration
 test_settings:
@@ -450,13 +451,13 @@ osdu_environment:
   performance_tier:
   version:
 
-# OSDU deployment details (optional - used for metrics collection)
 # Metrics Collection Configuration (optional)
+# Only 'cluster' is required — database defaults to 'adme-performance-db',
+# ingest_uri is auto-derived, auth is auto-detected.
 # metrics_collector:
 #   kusto:
-#     cluster:
-#     database:
-#     ingest_uri:
+#     cluster:                     # required — e.g. https://your-cluster.eastus.kusto.windows.net
+#     database:                    # optional — defaults to "adme-performance-db"
 
 test_environment:
   # Where the Azure Load Testing resource and tests are located
