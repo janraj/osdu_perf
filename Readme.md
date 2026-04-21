@@ -17,7 +17,7 @@ A comprehensive Python framework for performance testing OSDU (Open Subsurface D
 ✅ **CLI Tools** - Comprehensive command-line interface with three main commands  
 ✅ **Template System** - Pre-built templates for common OSDU services  
 ✅ **Configuration Management** - YAML-based configuration with environment-aware settings  
-✅ **Metrics Collection** - Automated metrics push to Azure Data Explorer (Kusto)  
+✅ **Metrics Collection** - Schema-driven telemetry to Azure Data Explorer (Kusto) with V3 tables  
 ✅ **Environment Detection** - Automatically adapts behavior for local vs Azure environments  
 
 ## 🏗️ Framework Architecture
@@ -26,8 +26,10 @@ A comprehensive Python framework for performance testing OSDU (Open Subsurface D
 - **`PerformanceUser`**: Locust integration with automatic service discovery
 - **`ServiceOrchestrator`**: Plugin architecture for test discovery and execution
 - **`BaseService`**: Abstract base class for implementing performance tests
-- **`InputHandler`**: Configuration management and environment detection
-- **`AzureTokenManager`**: Multi-credential authentication system  
+- **`InputHandler`**: Configuration management with split config (system + test) and environment detection
+- **`AzureTokenManager`**: Multi-credential authentication system
+- **`TelemetryDispatcher`**: Builds test reports from Locust stats and fans out to enabled telemetry plugins
+- **`KustoPlugin`**: Schema-driven telemetry plugin — auto-creates V3 tables and ingests metrics to Azure Data Explorer
 
 ## 🚀 Quick Start
 
@@ -198,68 +200,59 @@ osdu_perf run azure_load_test \
 
 The framework uses system and tests configuration files that support both local and Azure environments:
 
+**`config/system_config.yaml`** — shared environment and metrics settings:
+
 ```yaml
 # OSDU Environment Configuration
 osdu_environment:
-  # OSDU instance details (required for run local command)
   host: "https://your-osdu-host.com"
   partition: "your-partition-id"
   app_id: "your-azure-app-id"
-  
-  # OSDU deployment details (optional - used for metrics collection)
-  sku: "Standard"
-  version: "25.2.35"
-  
-  # Authentication (optional - uses automatic token generation if not provided)
-  auth:
-    # Manual token override (optional)
-    token: ""
 
-# Metrics Collection Configuration  
+  performance_tier: "Standard"     # e.g. Standard, Flex, Developer
+  version: "25.2.35"
+
+# Metrics Collection Configuration (optional)
+# Only 'cluster' is required — database defaults to 'adme-performance-db',
+# ingest_uri is auto-derived, auth is auto-detected.
 metrics_collector:
-  # Kusto (Azure Data Explorer) Configuration
   kusto:
     cluster: "https://your-kusto-cluster.eastus.kusto.windows.net"
-    database: "your-database"
-    ingest_uri: "https://ingest-your-kusto.eastus.kusto.windows.net"
+    database: "your-database"              # optional — defaults to "adme-performance-db"
 
-# Test Configuration (Optional)
-test_settings:
-  # Azure Load Test resource and test locations
+# Azure Load Test resource location
+test_environment:
   subscription_id: "your-azure-subscription-id"
   resource_group: "your-resource-group"
   location: "eastus"
-  
-  # Test-specific configurations
-  default_wait_time: 
-    min: 1
-    max: 3
-  users: 10
-  spawn_rate: 2
-  run_time: "60s"
-  engine_instances: 1
-  test_name_prefix: "osdu_perf_test"
-  # Single scenario key selected at runtime via --scenario
-  test_scenario: "health_check"
-  test_run_id_description: "Automated performance test"
 ```
 
+**`config/test_config.yaml`** — performance-tier profiles and scenario definitions:
+
 ```yaml
-# config/test_config.yaml
-scenarios:
-  health_check:
+performance_tier_profiles:
+  standard:
+    default_wait_time:
+      min: 1
+      max: 3
     users: 10
     spawn_rate: 2
     run_time: "60s"
     engine_instances: 1
+
+scenarios:
+  health_check:
+    test_name_prefix: "health_check_test"
+    test_run_id_description: "Health check scenario"
 ```
 
 ### Configuration Hierarchy
 
 The framework uses a layered configuration approach:
 
-1. **`config/system_config.yaml` + `config/test_config.yaml`** (project-specific settings)
-2. **CLI arguments** (highest priority, including required `--scenario`)
+1. **`config/system_config.yaml`** — environment, metrics, and Azure resource settings
+2. **`config/test_config.yaml`** — performance-tier profiles and per-scenario overrides
+3. **CLI arguments** (highest priority, including required `--scenario`)
 
 
 ## 🏗️ How It Works
@@ -302,15 +295,18 @@ Based on detected services, Azure resources are automatically named:
 - Environment variables injected by Azure Load Testing service
 - Automatic credential detection and fallback
 
-### 📊 Intelligent Metrics Collection
+### 📊 Telemetry & Metrics Collection
 
-**Automatic Kusto Integration:**
-- Detects environment (local vs Azure) automatically
-- Uses appropriate authentication method
-- Pushes detailed metrics to three tables:
-  - `LocustMetrics` - Per-endpoint statistics
-  - `LocustExceptions` - Error tracking
-  - `LocustTestSummary` - Overall test summaries
+**Schema-Driven Kusto Integration:**
+- Schema definitions are the single source of truth — table DDL, CSV headers, and row builders are all derived automatically
+- Detects environment (local vs Azure) and uses appropriate auth (Azure CLI locally, Managed Identity in Azure)
+- `ingest_uri` is auto-derived from `cluster` — no manual configuration needed
+- `database` defaults to `"adme-performance-db"` if not set
+- Tables are auto-created via `.create-merge table` on first publish
+- Pushes detailed metrics to three V3 tables:
+  - `LocustMetricsV3` — Per-endpoint request statistics and percentiles
+  - `LocustExceptionsV3` — Error and exception tracking
+  - `LocustTestSummaryV3` — Aggregated test run summaries
 
 ## 🧪 Writing Performance Tests
 
@@ -607,5 +603,5 @@ This project is licensed under the MIT License — see the `LICENSE` file for de
 
 ---
 
-**Generated by OSDU Performance Testing Framework v1.0.24**
+**Generated by OSDU Performance Testing Framework v1.0.42**
 

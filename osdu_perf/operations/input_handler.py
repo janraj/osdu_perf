@@ -406,8 +406,11 @@ class InputHandler:
         # Merge with defaults - only use non-empty values from config file
         final_config = default_config.copy()
         for key, value in kusto_config.items():
-            if value and value.strip():  # Only use non-empty, non-whitespace values
-                final_config[key] = value
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            final_config[key] = value
         
         # Auto-detect authentication method based on execution environment
         if self.is_azure_load_test_env:
