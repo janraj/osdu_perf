@@ -190,6 +190,46 @@ def _on_init_parser(parser):
         help="osdu_perf test run id prefix (combined as <test-name>-<prefix>-<UTCts>).",
         include_in_web_ui=True,
     )
+    parser.add_argument(
+        "--osdu-extra-labels",
+        type=str,
+        default=os.getenv("OSDU_PERF_EXTRA_LABELS_OVERRIDE", ""),
+        help=(
+            "Extra labels for this run. Accepts JSON object "
+            "('{\"image\":\"opt-1.2.3\"}') or comma-separated key=value pairs "
+            "('image=opt-1.2.3,build=42'). Merged on top of deploy-time labels "
+            "in OSDU_PERF_EXTRA_LABELS for this run only."
+        ),
+        include_in_web_ui=True,
+    )
+
+
+def _parse_swarm_labels(raw: str) -> dict[str, str]:
+    """Parse the --osdu-extra-labels value (JSON or k=v,k2=v2)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    if raw.startswith("{"):
+        try:
+            import json
+
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items()}
+        except (ValueError, TypeError):
+            return {}
+        return {}
+    out: dict[str, str] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        k, _, v = pair.partition("=")
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
 
 
 @events.test_start.add_listener
@@ -205,6 +245,21 @@ def _on_test_start(environment, **_kwargs):
         ui_prefix = (getattr(opts, "osdu_test_run_id_prefix", "") or "").strip()
         if ui_prefix:
             os.environ["OSDU_PERF_TEST_RUN_ID_PREFIX"] = ui_prefix
+        ui_labels = _parse_swarm_labels(getattr(opts, "osdu_extra_labels", "") or "")
+        if ui_labels:
+            import json
+
+            base: dict[str, str] = {}
+            existing = os.environ.get("OSDU_PERF_EXTRA_LABELS", "")
+            if existing:
+                try:
+                    parsed = json.loads(existing)
+                    if isinstance(parsed, dict):
+                        base = {str(k): str(v) for k, v in parsed.items()}
+                except (ValueError, TypeError):
+                    pass
+            base.update(ui_labels)
+            os.environ["OSDU_PERF_EXTRA_LABELS"] = json.dumps(base)
 
     # Drop any pre-set TEST_RUN_ID so a fresh one is generated for this run
     # using the (possibly UI-overridden) name + prefix + new timestamp.

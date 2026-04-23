@@ -362,6 +362,7 @@ class K8sRunner:
                 "OSDU_PERF_PROFILE_RUN_TIME": str(inputs.profile.run_time),
                 "OSDU_PERF_PROFILE_ENGINES": str(inputs.profile.engine_instances),
                 "OSDU_PERF_TEST_NAME": inputs.test_name or "",
+                "OSDU_PERF_TEST_RUN_ID_PREFIX": inputs.test_run_id_prefix or "",
                 "OSDU_PERF_TEST_RUN_ID": run_name,
                 "OSDU_PERF_AZURE_CONFIG": inputs.azure_config_relpath or "",
                 "WEB_UI": "true" if inputs.web_ui else "false",

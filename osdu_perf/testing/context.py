@@ -8,10 +8,10 @@ generator. It replaces the 900-line ``InputHandler`` with a focused helper.
 from __future__ import annotations
 
 import os
+import secrets
 import socket
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from ..auth import TokenProvider
@@ -123,11 +123,14 @@ class RequestContext:
             headers.update(extra)
         return headers
 
-    def new_correlation_id(self) -> str:
+    def new_correlation_id(self, action: str = "") -> str:
         with self._lock:
             self._counter += 1
             counter = self._counter
-        return f"{self.test_run_id}-{self._hostname}-{counter}"
+        host4 = self._hostname[-4:] if len(self._hostname) > 4 else self._hostname
+        if action:
+            return f"{self.test_run_id}-{action}-{host4}-{counter}"
+        return f"{self.test_run_id}-{host4}-{counter}"
 
     # ------------------------------------------------------------------
     # Labels
@@ -165,7 +168,24 @@ def _short_hostname() -> str:
 
 
 def _generate_test_run_id(config: AppConfig, scenario: str) -> str:
-    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    """Build a unique test run id of the form
+    ``<test_name>-<prefix>-<host4>-<rand8>``.
+
+    - ``test_name`` comes from ``OSDU_PERF_TEST_NAME`` (falls back to
+      ``scenario``).
+    - ``prefix`` comes from ``OSDU_PERF_TEST_RUN_ID_PREFIX``, then
+      ``config.test_run_id_prefix``, then ``"perf"``.
+    - ``host4`` is the last 4 chars of the short hostname (Locust pod
+      name suffix on AKS) so master/worker pods on the same run share a
+      stable, identifiable suffix.
+    - ``rand8`` is 8 hex chars from :mod:`secrets` — uniqueness across
+      repeated runs (and across pods/cycles) without relying on clock
+      precision.
+
+    Generation is idempotent on the prefix: if the configured prefix
+    already begins with ``<test_name>-`` (or equals it) it is not
+    duplicated.
+    """
     prefix = (
         (os.getenv("OSDU_PERF_TEST_RUN_ID_PREFIX") or "").strip()
         or getattr(config, "test_run_id_prefix", None)
@@ -176,7 +196,10 @@ def _generate_test_run_id(config: AppConfig, scenario: str) -> str:
         head = prefix
     else:
         head = f"{test_name}-{prefix}"
-    return f"{head}-{stamp}"
+    hostname = _short_hostname()
+    host4 = hostname[-4:] if len(hostname) >= 4 else hostname
+    rand8 = secrets.token_hex(4)  # 8 hex chars
+    return f"{head}-{host4}-{rand8}"
 
 
 def _safe_int(value: str | None) -> int:

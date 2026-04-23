@@ -1,40 +1,31 @@
-"""Performance test for OSDU Storage ``GET /records/{id}``.
+"""Performance test for OSDU Storage ``PUT /records``.
 
-Hammers ``GET /api/storage/v2/records/{id}`` against records created
-**once per Locust worker process** during ``prehook``. With N
-distributed workers the legaltag + record setup runs N times total,
-no matter how many users you ramp to. Both setup calls are
-idempotent on the server side:
+Hammers ``PUT /api/storage/v2/records`` with a randomised
+``master-data--Well`` payload on every call. Each request creates /
+upserts a record **without** an explicit ``id`` field so the server
+assigns one. The legaltag is created **once per worker process**
+during ``prehook``; all subsequent users reuse it.
 
-* ``POST /api/legal/v1/legaltags`` creates the legaltag named
-  ``${LEGALTAG_NAME_DEFAULT}`` (substituting ``{partition}`` with the
-  configured data-partition-id). A 409 from the legal service is
-  treated as success — the tag already exists.
-* ``PUT /api/storage/v2/records`` upserts ``STORAGE_RECORD_COUNT``
-  ``master-data--Well`` records with ids
-  ``{partition}:master-data--Well:perf{1..N}``. PUT is idempotent on
-  ``id`` so re-runs simply overwrite the same payload.
+Every PUT payload randomises ``FacilityID`` and the first
+``AliasName`` (WELL_NAME alias) with a 8-character alphanumeric string
+so that each request produces a unique record body.
 
-``execute`` then issues ``GET /api/storage/v2/records/<id>`` picking a
-random record id from the seeded set. All HTTP calls go through Locust
-so they show up in ``LocustMetricsV2`` / ``LocustExceptionsV2``.
+All HTTP calls go through Locust so they show up in
+``LocustMetricsV2`` / ``LocustExceptionsV2``.
 
 Environment knobs (all optional):
 
 * ``STORAGE_LEGALTAG_NAME``      — legaltag to create / reference.
   Defaults to ``{partition}-public-usa-check-1``.
-* ``STORAGE_RECORD_KIND``        — kind for the seeded records.
+* ``STORAGE_RECORD_KIND``        — kind for the upserted records.
   Defaults to ``osdu:wks:master-data--Well:1.0.0``.
-* ``STORAGE_RECORD_ID_PREFIX``   — id prefix before the numeric suffix.
-  Defaults to ``{partition}:master-data--Well:perf``.
-* ``STORAGE_RECORD_COUNT``       — number of records to seed and pick
-  from on every GET (default ``1``).
 """
 
 from __future__ import annotations
 
 import os
 import random
+import string
 import threading
 
 import osdu_perf
@@ -42,22 +33,21 @@ import osdu_perf
 from osdu_perf import BaseService
 
 
-# Process-stable one-shot guard. We stash on the ``osdu_perf`` module
-# object (loaded exactly once per Python process) instead of relying on
-# class attributes, so that even if this test module is re-executed
-# mid-run (e.g. by a future ``ServiceRegistry`` that disables module
-# caching), the setup still fires only once per worker process.
-_GUARD_NAME = "_storage_get_record_by_id_setup_v1"
+_GUARD_NAME = "_storage_put_records_legaltag_setup_v1"
 if not hasattr(osdu_perf, _GUARD_NAME):
     setattr(osdu_perf, _GUARD_NAME, {"done": False, "lock": threading.Lock()})
 _GUARD: dict = getattr(osdu_perf, _GUARD_NAME)
 
+_RAND_CHARS = string.ascii_uppercase + string.digits
+
+
+def _rand_id(length: int = 8) -> str:
+    return "".join(random.choices(_RAND_CHARS, k=length))
+
 
 class ${CLASS_NAME}(BaseService):
-    """GET /api/storage/v2/records/{id} after one-shot legaltag + record setup."""
+    """PUT /api/storage/v2/records — bombard with randomised Well payloads."""
 
-    # Human-friendly label for dashboards. Rows ingested into
-    # LocustMetricsV2 / LocustExceptionsV2 use this as the ``Service`` column.
     service_name = "storage"
 
     # ------------------------------------------------------------------
@@ -76,31 +66,20 @@ class ${CLASS_NAME}(BaseService):
             "STORAGE_RECORD_KIND",
             "osdu:wks:master-data--Well:1.0.0",
         )
-        self._id_prefix = os.getenv(
-            "STORAGE_RECORD_ID_PREFIX",
-            f"{self._partition}:master-data--Well:perf",
-        )
-        self._record_count = max(1, int(os.getenv("STORAGE_RECORD_COUNT", "1")))
-        self._record_ids = [
-            f"{self._id_prefix}{i}" for i in range(1, self._record_count + 1)
-        ]
 
-        # Run setup exactly once per worker process. Subsequent users
-        # spawning in the same process see ``done=True`` and skip the
-        # HTTP calls entirely.
         with _GUARD["lock"]:
             if _GUARD["done"]:
                 return
             self._ensure_legaltag(headers)
-            self._ensure_records(headers)
             _GUARD["done"] = True
 
     def execute(self, headers=None, partition=None, host=None) -> None:
-        record_id = random.choice(self._record_ids)
-        self.client.get(
-            f"/api/storage/v2/records/{record_id}",
+        record = self._build_record()
+        self.client.put(
+            "/api/storage/v2/records",
+            json=[record],
             name="${SAMPLE_NAME}",
-            headers=self._with_correlation(headers, "get-record"),
+            headers=self._with_correlation(headers, "put-records"),
         )
 
     def posthook(self, headers=None, partition=None, host=None) -> None:
@@ -124,9 +103,6 @@ class ${CLASS_NAME}(BaseService):
                 "securityClassification": "Public",
             },
         }
-        # Mark these calls so they don't pollute the GET stats. The
-        # ``catch_response=True`` + ``response.success()`` pattern lets
-        # us treat 409 (already exists) as a success on the legaltag.
         with self.client.post(
             "/api/legal/v1/legaltags",
             json=body,
@@ -141,26 +117,10 @@ class ${CLASS_NAME}(BaseService):
                     f"create legaltag failed: {response.status_code} {response.text[:300]}"
                 )
 
-    def _ensure_records(self, headers) -> None:
-        records = [self._build_record(rid) for rid in self._record_ids]
-        with self.client.put(
-            "/api/storage/v2/records",
-            json=records,
-            name="${SAMPLE_NAME}__setup_records",
-            headers=self._with_correlation(headers, "create-records"),
-            catch_response=True,
-        ) as response:
-            if response.status_code in (200, 201):
-                response.success()
-            else:
-                response.failure(
-                    f"upsert records failed: {response.status_code} {response.text[:300]}"
-                )
-
-    def _build_record(self, record_id: str) -> dict:
+    def _build_record(self) -> dict:
         partition = self._partition
+        facility_id = _rand_id()
         return {
-            "id": record_id,
             "kind": self._kind,
             "acl": {
                 "owners": [
@@ -174,7 +134,7 @@ class ${CLASS_NAME}(BaseService):
                 "Source": "TNO",
                 "NameAliases": [
                     {
-                        "AliasName": "ACA-11",
+                        "AliasName": facility_id,
                         "AliasNameTypeID": "opendes:reference-data--AliasNameType:WELL_NAME:",
                     },
                     {
@@ -211,7 +171,7 @@ class ${CLASS_NAME}(BaseService):
                         ],
                     }
                 },
-                "FacilityID": "ACA-11",
+                "FacilityID": facility_id,
                 "FacilityTypeID": "opendes:reference-data--FacilityType:WELL_NAME:",
                 "FacilityOperators": [
                     {
