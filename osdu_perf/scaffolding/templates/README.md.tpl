@@ -43,16 +43,22 @@ must point at a real OSDU instance before the tests will work. For
 
 ### Web-UI custom fields
 
-In web-UI mode, the Locust swarm form exposes two extra fields under
+In web-UI mode, the Locust swarm form exposes three extra fields under
 **Custom parameters**:
 
 * **Osdu test name** — backs `OSDU_PERF_TEST_NAME`
 * **Osdu test run id prefix** — backs `OSDU_PERF_TEST_RUN_ID_PREFIX`
+* **Osdu extra labels** — per-swarm override for
+  `OSDU_PERF_EXTRA_LABELS`. Accepts JSON
+  (`{"image":"opt-1.2.3"}`) or comma-separated `key=value` pairs
+  (`image=opt-1.2.3,build=42`). Merged on top of the deploy-time
+  label bag for this one swarm only — so you can iterate on image or
+  build labels without re-deploying the chart.
 
 Defaults populate from the pod's environment, so leaving them alone
-behaves identically. Change either, click **Start swarming**, and the
-next run's `TestRunId` (Kusto) reflects the new values without
-restarting any pod.
+behaves identically. Change any of them, click **Start swarming**,
+and the next run's `TestRunId` and Kusto `Labels` bag reflect the new
+values without restarting any pod.
 
 ### Multi-cluster
 

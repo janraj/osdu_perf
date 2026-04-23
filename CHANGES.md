@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.2.7 — Collision-free test run ids, action-aware correlation ids, web-UI label overrides
+
+### Added
+
+* **`--osdu-extra-labels` flag on the Locust swarm form** (and the
+  matching `OSDU_PERF_EXTRA_LABELS_OVERRIDE` env var). Accepts either
+  a JSON object (`{"image":"opt-1.2.3"}`) or comma-separated
+  `key=value` pairs. Values are merged on top of the deploy-time
+  `OSDU_PERF_EXTRA_LABELS` bag for the next swarm only — so you can
+  redeploy a chart once and iterate on image / build labels purely
+  from the web UI.
+* **`BaseService.new_correlation_id(action='')`** — thread-safe
+  correlation-id helper available on every test class. The generated
+  id is `<test_run_id>[-<action>]-<host4>-<counter>` (or
+  `<action>-<host4>-<counter>` when no test_run_id is set). Use the
+  optional `action` segment to tag individual request kinds (e.g.
+  `"put"`, `"get"`, `"search"`) so you can filter OSDU service-side
+  logs down to a specific API call within a single run.
+* **`storage_put_records` sample** (`osdu_perf init
+  --sample=storage_put_records`). Scaffolds a Storage PUT-records
+  workload: legaltag + schema/kind bootstrap in `prehook`, then
+  single-record upserts in the hot loop.
+
+### Changed
+
+* **Test run id scheme is now clock-independent.** The old format
+  `<test_name>-<prefix>-<UTCts>` has been replaced with
+  `<test_name>-<prefix>-<host4>-<rand8>`, where `host4` is the last
+  4 chars of the short hostname (on AKS, the Locust master pod
+  suffix) and `rand8` is 8 hex chars from `secrets.token_hex(4)`.
+  Rationale: back-to-back web-UI swarms inside the same second were
+  colliding on the old timestamp-based id; the new id is guaranteed
+  unique across pods and cycles without any clock precision
+  assumptions.
+* **`RequestContext.new_correlation_id` now accepts an optional
+  `action`** and uses `host4` instead of the full hostname, keeping
+  correlation ids short enough for log-index-friendly filtering.
+
+## 2.2.5 / 2.2.6 — Internal-only
+
+Published tags for dogfooding the 2.2.7 changes on the v3 matrix
+clusters. No user-visible API changes beyond those documented under
+2.2.7.
+
 ## 2.2.4 — One-shot setup hooks now actually fire once per worker
 
 ### Fixes

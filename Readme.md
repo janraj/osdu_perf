@@ -26,7 +26,7 @@ Verify:
 
 ```bash
 osdu_perf version
-# 2.1.0
+# 2.2.7
 ```
 
 ### 2. Scaffold a project
@@ -332,9 +332,14 @@ Scaffold a new project.
 osdu_perf init --sample=<name> [--directory=PATH] [--force] [--list-samples]
 ```
 
-* `--sample=<name>`: bundled samples are `search_query` (default) and
-  `storage_get_record_by_id` (legaltag + record upsert in `prehook`,
-  then `GET /api/storage/v2/records/{id}` in the hot loop).
+* `--sample=<name>`: bundled samples (see `osdu_perf samples` for the
+  canonical list):
+  * `search_query` — `POST /api/search/v2/query` in the hot loop.
+  * `storage_get_record_by_id` — legaltag + record upsert in `prehook`,
+    then `GET /api/storage/v2/records/{id}` in the hot loop.
+  * `storage_put_records` — legaltag + kind/schema bootstrap in
+    `prehook`, then `PUT /api/storage/v2/records` (single-record
+    upserts) in the hot loop.
 * `--directory=PATH`: target directory (default `.`).
 * `--force`: overwrite existing files.
 * `--list-samples`: print available samples and exit.
@@ -344,7 +349,9 @@ osdu_perf init --sample=<name> [--directory=PATH] [--force] [--list-samples]
 List bundled samples:
 
 ```
-search_query          Search Query
+search_query              Search Query
+storage_get_record_by_id  Storage GET Record By ID
+storage_put_records       Storage PUT Records
 ```
 
 ### `osdu_perf validate`
@@ -401,6 +408,13 @@ osdu_perf run local \
   labels merged on top of the resolved labels (top-level `labels:` +
   `scenario_defaults.<scenario>.metadata` + `run_scenario.labels`).
   Example: `--label build=42 --label region=eastus`.
+* `--osdu-extra-labels=JSON|K=V,...` *(optional, web-UI editable)* —
+  extra labels applied **only to the next run** started from the Locust
+  web UI. Accepts either a JSON object (`'{"image":"opt-1.2.3"}'`)
+  or comma-separated `key=value` pairs (`image=opt-1.2.3,build=42`).
+  Merged on top of `OSDU_PERF_EXTRA_LABELS` baked into the pod
+  environment, so re-swarming the same deployed run with different
+  image labels doesn't require a helm re-install.
 * `--headless` — run without the Locust web UI (for CI).
 * `--bearer-token` / `ADME_BEARER_TOKEN` env var — skip `az` and use a
   pre-acquired token.
@@ -544,7 +558,7 @@ For multi-tenant clusters, set `aks.ingress.type: istio` (or
 Each click of **Start swarming** in the UI:
 
 1. Resets per-endpoint accumulators across all workers.
-2. Generates a fresh `<test_name>-<prefix>-<UTCts>` run id.
+2. Generates a fresh `<test_name>-<prefix>-<host4>-<rand8>` run id.
 3. Ingests a separate Kusto row at test-stop.
 
 The swarm form auto-renders two custom fields (under
@@ -555,9 +569,13 @@ ConfigMap:
 | ------------------------- | ------------------------------------ |
 | `Osdu test name`          | `OSDU_PERF_TEST_NAME`                |
 | `Osdu test run id prefix` | `OSDU_PERF_TEST_RUN_ID_PREFIX`       |
+| `Osdu extra labels`       | `OSDU_PERF_EXTRA_LABELS` (override)  |
 
-Change either, click **Start swarming**, and the next run's
-`TestRunId` reflects the new values without restarting any pod.
+Change any of them, click **Start swarming**, and the next run's
+`TestRunId` and Kusto `Labels` bag reflect the new values without
+restarting any pod. `Osdu extra labels` accepts JSON
+(`{"image":"opt-1.2.3"}`) or `key=value,key2=value2` and is merged
+on top of the deploy-time label bag for that single swarm only.
 
 #### Multi-cluster — `--azure-config`
 
@@ -607,6 +625,7 @@ Quick lookup. `L` = `run local`, `A` = `run azure`, `K` = `run k8s`, `—` = ign
 | `--test-name NAME`         | ✓ | ✓ | ✓ | `run_scenario.test_name` → scenario  | ALT test-id component / k8s `OSDU_PERF_TEST_NAME`              |
 | `--test-run-id-prefix TAG` | ✓ | ✓ | ✓ | `test_run_id_prefix` (default `perf`)| Prefix token inside the generated run id                       |
 | `--label KEY=VALUE`        | ✓ | ✓ | ✓ | (none, repeatable)                   | Extra labels merged on top of resolved labels                  |
+| `--osdu-extra-labels JSON` | — | — | — | `OSDU_PERF_EXTRA_LABELS_OVERRIDE`    | Web-UI only: per-swarm label override (JSON or k=v,k=v)        |
 | `--azure-config PATH`      | ✓ | ✓ | ✓ | `config/azure_config.yaml`           | Use a non-default azure config (per-cluster)                   |
 | `--load-test-name NAME`    | — | ✓ | — | `azure_load_test.name`               | Override which ALT resource to target                          |
 | `--namespace NAME`         | — | — | ✓ | `aks.namespace` (default `perf`)     | Override target k8s namespace                                  |
@@ -767,6 +786,7 @@ complement) CLI flags.
 | `OSDU_PERF_TEST_RUN_ID_PREFIX`   | `RequestContext`   | Prefix component of the generated run id (UI-editable)     |
 | `OSDU_PERF_AZURE_CONFIG`         | `load_config()`    | Path to `azure_config.yaml` to load (set by `--azure-config`) |
 | `OSDU_PERF_EXTRA_LABELS`         | Locust runtime     | JSON blob; merged on top of resolved labels (set by CLI)   |
+| `OSDU_PERF_EXTRA_LABELS_OVERRIDE`| Locust web UI      | Default for the `--osdu-extra-labels` web-UI field         |
 | `LOCUST_HOST`                    | Locust             | Target URL (set by the framework)                          |
 | `LOCUST_USERS` / `LOCUST_SPAWN_RATE` / `LOCUST_RUN_TIME` | Locust | Load shape (set by the framework from the profile)         |
 | `AZURE_LOAD_TEST`                | `TokenProvider`    | When `true`, uses managed identity instead of `az`         |
@@ -788,10 +808,18 @@ complement) CLI flags.
   → the scenario name. The test is **created once** and reused on every
   subsequent invocation — every run nests under it in the ALT UI.
 
-* **Test run id** (unique per invocation):
+* **Test run id** (unique per invocation, since 2.2.7):
   ```
-  <test_name>-<test_run_id_prefix>-<YYYYMMDDHHMMSS>
+  <test_name>-<test_run_id_prefix>-<host4>-<rand8>
   ```
+  where `host4` is the last 4 characters of the short hostname (on
+  AKS, the Locust master pod's name suffix — so master and all
+  workers in the same helm release share a stable, identifiable
+  code) and `rand8` is 8 hex chars from `secrets.token_hex(4)`.
+  The scheme is clock-independent, so repeat runs started inside the
+  same second (e.g. web-UI swarms back-to-back) are guaranteed
+  unique.
+
   Generation is idempotent: if `test_run_id_prefix` already starts
   with `<test_name>-` it is not duplicated. `test_run_id_prefix`
   defaults to `perf` and can be changed globally in
@@ -815,8 +843,10 @@ The timestamp is UTC. The test-run id:
   `<scenario>_<test_name>`;
 * is exported to Locust as the `TEST_RUN_ID` env var for `run local`;
 * is used as the base of every request's `correlation-id` header
-  (`{test_run_id}-{short-hostname}-{counter}`), so you can correlate
-  OSDU service-side logs with a specific run;
+  (`{test_run_id}[-{action}]-{host4}-{counter}` — see
+  [`BaseService.new_correlation_id`](#correlation-ids)), so you can
+  correlate OSDU service-side logs with a specific run (and, when
+  `action` is supplied, a specific API call within it);
 * is written into every Kusto telemetry row in the `TestRunId`
   column.
 
@@ -914,7 +944,7 @@ Tokens are cached per `app_id` within a process.
 
 ```python
 from osdu_perf import (
-    __version__,       # "2.1.0"
+    __version__,       # "2.2.7"
     AppConfig,         # typed config tree
     load_config,       # walks cwd → parents for config/*.yaml
     BaseService,       # subclass this to define a test
@@ -937,7 +967,36 @@ print(settings.users, settings.run_time)
 | `get_token()`                    | bearer token                               |
 | `get_headers()`                  | dict with `Authorization` etc.             |
 | `get_request_headers(extra=None)`| headers with fresh `Correlation-Id`        |
-| `new_correlation_id()`           | `<run_id>-<short_host>-<counter>`          |
+| `new_correlation_id(action='')`  | `<run_id>[-<action>]-<host4>-<counter>`    |
+
+### Correlation IDs
+
+Every request automatically carries a `Correlation-Id` header so that
+OSDU service-side logs can be pivoted by run. Since 2.2.7, services
+can tag correlation ids with an **action** to distinguish the API
+calls a single test issues (e.g. a PUT test that also polls a GET):
+
+```python
+from osdu_perf import BaseService
+
+class StoragePutService(BaseService):
+    service_name = "storage"
+
+    def execute(self, headers=None, partition=None, host=None):
+        # <run_id>-put-<host4>-<counter>
+        h = {**headers, "Correlation-Id": self.new_correlation_id("put")}
+        self.client.put(f"{host}/api/storage/v2/records",
+                        name="storage_put", headers=h, json=[record])
+
+        # <run_id>-get-<host4>-<counter>
+        h2 = {**headers, "Correlation-Id": self.new_correlation_id("get")}
+        self.client.get(f"{host}/api/storage/v2/records/{rid}",
+                        name="storage_get", headers=h2)
+```
+
+`BaseService.new_correlation_id` is thread-safe (atomic counter +
+`threading.Lock`) and works identically on local runs, Azure Load
+Testing, and AKS.
 
 ---
 
@@ -1034,6 +1093,29 @@ extending an osdu_perf project.
    3. `az login && az account set --subscription <id>`.
    4. `osdu_perf run azure --scenario <name>`.
 
+4. **User asks to run on AKS (`run k8s`)**
+   1. Confirm cluster prerequisites (AKS + Workload Identity + OIDC
+      issuer, UAMI with AcrPull + Kusto `Database User` + OSDU
+      entitlements, federated credential bound to
+      `system:serviceaccount:<ns>:osdu-perf-runner`). See
+      [Cluster-side prerequisites](#cluster-side-prerequisites-one-time).
+   2. Add an `aks:` block to `config/azure_config.yaml` — minimally
+      `subscription_id`, `resource_group`, `cluster_name`,
+      `workload_identity_client_id`, and `container_registry.name`.
+   3. First-time on a fresh cluster: pass `--create-service-account`
+      (or set `aks.create_service_account: true`) so the chart
+      provisions the ServiceAccount with the WI annotation. Drop the
+      flag on subsequent runs.
+   4. Headless CI run:
+      `osdu_perf run k8s --scenario <name> --engine-instances 3`.
+   5. Interactive web-UI run:
+      `osdu_perf run k8s --scenario <name> --engine-instances 3 --web-ui --no-logs`
+      then `kubectl port-forward -n perf svc/<run-name>-master 8089:8089`.
+   6. Iterate on the **same** deployed run by changing
+      `Osdu test name`, `Osdu test run id prefix`, and
+      `Osdu extra labels` in the web UI and clicking **Start
+      swarming** again — no rebuild/helm re-install needed.
+
 ### Invariants
 
 * Never edit files under `osdu_perf/scaffolding/templates/` in a user
@@ -1072,6 +1154,15 @@ Require explicit user confirmation:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<!-- legacy short-form README retained below for search engines; see
+the 5-minute quick start above for the canonical guide. -->
+
+---
+
+<details>
+<summary>Short-form quick start (legacy)</summary>
+
 # osdu_perf
 
 Performance testing framework for OSDU APIs built on top of Locust and Azure
@@ -1167,3 +1258,5 @@ ruff check osdu_perf tests
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+</details>
