@@ -77,7 +77,7 @@ class AzureLoadTestExecutor:
                 if len(display_name) < 2:
                     display_name = f"{display_name}-run"
                 elif len(display_name) > 50:
-                    display_name = display_name[:47] + "..."
+                    display_name = display_name[:50]
             else:
                 # Generate a display name that fits within limits
                 base_name = test_name[:20] if len(test_name) > 20 else test_name
@@ -85,7 +85,7 @@ class AzureLoadTestExecutor:
                 # Ensure it's within the 50 character limit
                 if len(display_name) > 50:
                     # Truncate the base name to fit
-                    max_base_length = 50 - len(f"-{timestamp}")
+                    max_base_length = 50 - len(str(timestamp)) - 1  # -1 for the hyphen separator
                     base_name = test_name[:max_base_length] if len(test_name) > max_base_length else test_name
                     display_name = f"{base_name}-{timestamp}"
 

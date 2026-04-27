@@ -856,7 +856,7 @@ class InputHandler:
 
         max_length = 50  # Maximum length for the test run name
         timestamp = datetime.now().strftime('%m%d_%H%M%S')  # Shorter timestamp
-        max_base_length = max_length - len(f"{timestamp}")
+        max_base_length = max_length - len(timestamp) - 1  # -1 for the hyphen separator
         return f"{test_name[:max_base_length]}-{timestamp}"
 
     def get_test_scenario(self, cli_override: Optional[List[str] | str] = None) -> str:
