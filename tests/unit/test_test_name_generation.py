@@ -131,3 +131,42 @@ def test_azure_command_uses_shared_test_name_generation(mock_input_handler_class
         version="1.0",
     )
     assert config["test_name"] == "team_prefix_standard_1_0"
+
+
+class TestGetTestRunNameBoundary:
+    """Boundary-condition tests for InputHandler.get_test_run_name().
+
+    The method must guarantee ``len(result) <= 50`` for any input length.
+    The timestamp format is ``%m%d_%H%M%S`` (11 chars) plus a hyphen separator,
+    leaving up to 38 characters for the base name.
+    """
+
+    @staticmethod
+    def _make_handler():
+        handler = InputHandler.__new__(InputHandler)
+        handler.logger = Mock()
+        return handler
+
+    def test_exactly_38_char_base_name_hits_limit(self):
+        """A 38-char base name + hyphen + 11-char timestamp == 50 exactly."""
+        handler = self._make_handler()
+        base = "a" * 38
+        result = handler.get_test_run_name(base)
+        assert len(result) == 50
+        assert result.startswith(base)
+
+    def test_39_char_base_name_truncated_to_fit(self):
+        """A 39-char name exceeds max_base_length (38) and must be truncated."""
+        handler = self._make_handler()
+        base = "c" * 39
+        result = handler.get_test_run_name(base)
+        assert len(result) <= 50
+        assert not result.startswith(base)
+
+    def test_result_format_is_base_hyphen_timestamp(self):
+        """Output must be '{base}-{MMdd_HHmmSS}' with an 11-char timestamp."""
+        handler = self._make_handler()
+        result = handler.get_test_run_name("mytest")
+        parts = result.rsplit("-", 1)
+        assert len(parts) == 2
+        assert len(parts[1]) == 11
