@@ -18,6 +18,15 @@ class TestMetadata:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     test_duration_seconds: float = 0.0
     max_rps: float = 0.0
+    # V3.1 enhanced metadata
+    test_name: str = ""
+    profile_name: str = ""
+    users: int = 0
+    spawn_rate: float = 0.0
+    run_time_seconds: int = 0
+    engine_instances: int = 0
+    engine_id: str = ""
+    labels: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -48,6 +57,13 @@ class EndpointStat:
     start_time: str
     last_request_timestamp: str
     throughput: float
+    # V3.1 status code fields
+    status_codes: dict = field(default_factory=dict)
+    count_2xx: int = 0
+    count_3xx: int = 0
+    count_4xx: int = 0
+    count_5xx: int = 0
+    count_other: int = 0
 
 
 @dataclass
@@ -91,9 +107,27 @@ class TestSummary:
 
 
 @dataclass
+class TimeSeriesBucket:
+    """One 10-second time bucket for a single endpoint."""
+    bucket_start: str
+    bucket_duration_seconds: int
+    service: str
+    name: str
+    method: str
+    requests: int
+    failures: int
+    requests_per_sec: float
+    failures_per_sec: float
+    response_time_50th: float
+    response_time_95th: float
+    response_time_99th: float
+
+
+@dataclass
 class TestReport:
     """Complete test report passed to every telemetry plugin."""
     metadata: TestMetadata
     endpoint_stats: List[EndpointStat] = field(default_factory=list)
     exceptions: List[ExceptionRecord] = field(default_factory=list)
     summary: Optional[TestSummary] = None
+    timeseries: List[TimeSeriesBucket] = field(default_factory=list)
