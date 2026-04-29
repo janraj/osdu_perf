@@ -39,8 +39,8 @@ class AzureLoadTestCommand(
         parser.add_argument('--location', help='Azure region (e.g., eastus, westus2) (overrides config.yaml)')
         parser.add_argument(
             '--directory', '-d',
-            default='./perf_tests',
-            help='Directory containing test files to upload (default: ./perf_tests)',
+            default='.',
+            help='Directory containing test files to upload (default: current directory)',
         )
 
     def validate_args(self, args) -> bool:
@@ -72,7 +72,7 @@ class AzureLoadTestCommand(
                 return 1
             
             # Continue with existing workflow...
-            test_directory = getattr(args, 'directory', './perf_tests')
+            test_directory = getattr(args, 'directory', '.')
             setup_success = runner.create_tests_and_upload_test_files(
                 test_name=config['test_name'],
                 test_directory=test_directory,
