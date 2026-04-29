@@ -133,9 +133,27 @@ class PerformanceUser():
         dispatcher = TelemetryDispatcher(plugins=discover_plugins(), config=config)
         dispatcher.dispatch(environment, input_handler)
 
+    @events.test_start.add_listener
+    def on_test_start(environment, **kwargs):
+        """Register request event collector and reset accumulators for web-UI reruns."""
+        from ..telemetry.request_events import register, reset_state
+        register()
+        reset_state()
+
+    @events.report_to_master.add_listener
+    def on_report_to_master(client_id, data):
+        """Worker: serialize and send status/timeseries state to master."""
+        from ..telemetry.request_events import serialize_state
+        data["osdu_perf_events"] = serialize_state()
+
+    @events.worker_report.add_listener
+    def on_worker_report(client_id, data):
+        """Master: merge worker state into master accumulators."""
+        from ..telemetry.request_events import merge_state
+        merge_state(data.get("osdu_perf_events"))
+
     @events.request.add_listener
     def on_request(request_type, name, response_time, response_length, response, **kwargs):
-        # response_length is bytes returned from server
-        pass 
+        pass
 
    

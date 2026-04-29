@@ -1,6 +1,7 @@
 """Telemetry dispatcher — builds TestReport from Locust stats and fans out to plugins."""
 
 import os
+import re
 import uuid
 import logging
 from datetime import datetime
@@ -10,7 +11,7 @@ from typing import List
 from .plugin_base import TelemetryPlugin
 from .report import (
     TestReport, TestMetadata, EndpointStat,
-    ExceptionRecord, TestSummary,
+    ExceptionRecord, TestSummary, TimeSeriesBucket,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,104 @@ def _collect_percentiles(entry) -> dict:
     return {label: entry.get_response_time_percentile(p) for label, p in PERCENTILE_KEYS}
 
 
+def _parse_run_time(value) -> int:
+    """Parse Locust run_time string to seconds.
+    Examples: "60s" → 60, "5m" → 300, "1h30m" → 5400
+    """
+    if value is None:
+        return 0
+    value = str(value).strip()
+    if not value:
+        return 0
+    total = 0
+    for match in re.finditer(r'(\d+)([smh])', value.lower()):
+        n, unit = int(match.group(1)), match.group(2)
+        total += n * {'s': 1, 'm': 60, 'h': 3600}[unit]
+    if total:
+        return total
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _resolve_users(environment, input_handler) -> int:
+    runner = getattr(environment, 'runner', None)
+    if runner:
+        val = getattr(runner, 'target_user_count', None)
+        if val is not None and val > 0:
+            return int(val)
+    opts = getattr(environment, 'parsed_options', None)
+    if opts:
+        val = getattr(opts, 'num_users', None)
+        if val is not None and val > 0:
+            return int(val)
+    if input_handler and hasattr(input_handler, 'get_users'):
+        try:
+            return int(input_handler.get_users())
+        except Exception:
+            pass
+    return 0
+
+
+def _resolve_spawn_rate(environment, input_handler) -> float:
+    runner = getattr(environment, 'runner', None)
+    if runner:
+        val = getattr(runner, 'spawn_rate', None)
+        if val is not None and val > 0:
+            return float(val)
+    opts = getattr(environment, 'parsed_options', None)
+    if opts:
+        val = getattr(opts, 'spawn_rate', None)
+        if val is not None and val > 0:
+            return float(val)
+    if input_handler and hasattr(input_handler, 'get_spawn_rate'):
+        try:
+            return float(input_handler.get_spawn_rate())
+        except Exception:
+            pass
+    return 0.0
+
+
+def _resolve_run_time(environment, input_handler, observed_duration) -> int:
+    opts = getattr(environment, 'parsed_options', None)
+    if opts:
+        val = getattr(opts, 'run_time', None)
+        if val:
+            parsed = _parse_run_time(val)
+            if parsed > 0:
+                return parsed
+    if input_handler and hasattr(input_handler, 'get_run_time'):
+        try:
+            parsed = _parse_run_time(input_handler.get_run_time())
+            if parsed > 0:
+                return parsed
+        except Exception:
+            pass
+    return int(observed_duration) if observed_duration > 0 else 0
+
+
+def _resolve_labels(input_handler) -> dict:
+    labels = {}
+    if input_handler and hasattr(input_handler, 'get_labels'):
+        try:
+            config_labels = input_handler.get_labels()
+            if isinstance(config_labels, dict):
+                labels.update(config_labels)
+        except Exception:
+            pass
+    env_labels_str = os.getenv("OSDU_PERF_LABELS", "")
+    if env_labels_str:
+        import json
+        try:
+            env_labels = json.loads(env_labels_str)
+            if isinstance(env_labels, dict):
+                labels.update(env_labels)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return labels
+
+
 class TelemetryDispatcher:
     """Builds a TestReport from Locust stats and dispatches to enabled plugins."""
 
@@ -119,6 +218,26 @@ class TelemetryDispatcher:
     # Report building — migrated from PerformanceUser.on_test_stop
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_test_name(input_handler, performance_tier, version, test_scenario):
+        if input_handler and hasattr(input_handler, 'generate_test_name_and_run_id'):
+            try:
+                name, _ = input_handler.generate_test_name_and_run_id(performance_tier, version)
+                if name:
+                    return name
+            except Exception:
+                pass
+        return test_scenario or ""
+
+    @staticmethod
+    def _resolve_engine_instances(input_handler):
+        if input_handler and hasattr(input_handler, 'get_engine_instances'):
+            try:
+                return int(input_handler.get_engine_instances())
+            except Exception:
+                pass
+        return 0
+
     def _build_report(self, environment, input_handler) -> TestReport:
         current_timestamp = datetime.utcnow()
 
@@ -170,9 +289,19 @@ class TelemetryDispatcher:
             timestamp=current_timestamp,
             test_duration_seconds=test_duration,
             max_rps=max_rps,
+            # V3.1 enhanced metadata
+            test_name=self._resolve_test_name(input_handler, performance_tier, version, test_scenario),
+            profile_name=performance_tier,
+            users=_resolve_users(environment, input_handler),
+            spawn_rate=_resolve_spawn_rate(environment, input_handler),
+            run_time_seconds=_resolve_run_time(environment, input_handler, test_duration),
+            engine_instances=self._resolve_engine_instances(input_handler),
+            engine_id=os.getenv("LOCUST_ENGINE_ID", ""),
+            labels=_resolve_labels(input_handler),
         )
 
         # Endpoint stats
+        from .request_events import status_counts_for, status_histogram_for, drain_timeseries
         endpoint_stats = []
         for entry in stats.entries.values():
             service = _get_service_name(entry.name)
@@ -191,6 +320,7 @@ class TelemetryDispatcher:
             duration = (end_dt - start_dt).total_seconds()
             throughput = (entry.total_content_length / duration) if duration > 0 else 0
             average_rps = (entry.num_requests / duration) if duration > 0 else 0
+            sc = status_counts_for(str(entry.method), str(entry.name))
 
             endpoint_stats.append(EndpointStat(
                 name=entry.name,
@@ -218,6 +348,13 @@ class TelemetryDispatcher:
                 start_time=entry_start,
                 last_request_timestamp=entry_end,
                 throughput=throughput,
+                # V3.1 status codes
+                status_codes=status_histogram_for(str(entry.method), str(entry.name)),
+                count_2xx=sc.get("Count2xx", 0),
+                count_3xx=sc.get("Count3xx", 0),
+                count_4xx=sc.get("Count4xx", 0),
+                count_5xx=sc.get("Count5xx", 0),
+                count_other=sc.get("CountOther", 0),
             ))
 
         # Exceptions
@@ -263,9 +400,29 @@ class TelemetryDispatcher:
         )
 
         logger.info(f"Test Run ID: {test_run_id}")
+
+        # V3.1 time-series buckets
+        timeseries = []
+        for bucket in drain_timeseries():
+            timeseries.append(TimeSeriesBucket(
+                bucket_start=bucket["BucketStart"],
+                bucket_duration_seconds=bucket["BucketDurationSeconds"],
+                service=_get_service_name(bucket["Name"]),
+                name=bucket["Name"],
+                method=bucket["Method"],
+                requests=bucket["Requests"],
+                failures=bucket["Failures"],
+                requests_per_sec=bucket["RequestsPerSec"],
+                failures_per_sec=bucket["FailuresPerSec"],
+                response_time_50th=bucket["ResponseTime50th"],
+                response_time_95th=bucket["ResponseTime95th"],
+                response_time_99th=bucket["ResponseTime99th"],
+            ))
+
         return TestReport(
             metadata=metadata,
             endpoint_stats=endpoint_stats,
             exceptions=exceptions,
             summary=summary,
+            timeseries=timeseries,
         )

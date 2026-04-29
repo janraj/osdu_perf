@@ -2,7 +2,7 @@
 
 import io
 import os
-import csv
+import json
 import time
 import logging
 from urllib.parse import urlparse
@@ -15,16 +15,33 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Schema definitions — SINGLE SOURCE OF TRUTH
 # Each schema is a list of (column_name, kusto_type) tuples.
-# Column lists, KQL .create-merge, and CSV headers are ALL derived from these.
-# To add/remove/rename a column, edit ONLY the schema tuple list below.
+# Column lists, KQL .create-merge, CSV headers, and JSON mappings are ALL
+# derived from these.  To add/remove/rename a column, edit ONLY below.
 # ---------------------------------------------------------------------------
 
-METRICS_SCHEMA = [
-    # --- osdu_perf metadata ---
-    ("TestEnv", "string"), ("ADME", "string"), ("Partition", "string"),
-    ("SKU", "string"), ("Version", "string"), ("TestRunId", "string"),
-    ("TestScenario", "string"), ("Timestamp", "datetime"), ("Service", "string"),
-    # --- Locust StatsEntry ---
+# Common envelope columns shared by all 4 tables
+_COMMON_ENVELOPE = [
+    ("TestRunId", "string"),
+    ("ADME", "string"),
+    ("Partition", "string"),
+    ("TestEnv", "string"),
+    ("SKU", "string"),
+    ("Version", "string"),
+    ("TestScenario", "string"),
+    ("Timestamp", "datetime"),
+    # V3.1 enhanced envelope
+    ("TestName", "string"),
+    ("ProfileName", "string"),
+    ("Users", "int"),
+    ("SpawnRate", "real"),
+    ("RunTimeSeconds", "int"),
+    ("EngineInstances", "int"),
+    ("EngineId", "string"),
+    ("Labels", "dynamic"),
+]
+
+METRICS_SCHEMA = _COMMON_ENVELOPE + [
+    ("Service", "string"),
     ("Name", "string"), ("Method", "string"),
     ("Requests", "long"), ("Failures", "long"), ("NumNoneRequests", "long"),
     ("TotalResponseTime", "long"),
@@ -35,30 +52,29 @@ METRICS_SCHEMA = [
     ("CurrentRPS", "real"), ("CurrentFailPerSec", "real"),
     ("TotalRPS", "real"), ("TotalFailPerSec", "real"),
     ("FailRatio", "real"), ("AvgContentLength", "real"),
-    # --- Percentiles ---
+    # Percentiles
     ("ResponseTime50th", "real"), ("ResponseTime60th", "real"),
     ("ResponseTime70th", "real"), ("ResponseTime80th", "real"),
     ("ResponseTime90th", "real"), ("ResponseTime95th", "real"),
     ("ResponseTime98th", "real"), ("ResponseTime99th", "real"),
     ("ResponseTime999th", "real"), ("ResponseTime9999th", "real"),
     ("ResponseTime100th", "real"),
-    # --- osdu_perf computed ---
+    # Computed
     ("AverageRPS", "real"), ("RequestsPerSec", "real"),
     ("FailuresPerSec", "real"), ("Throughput", "real"),
+    # V3.1 status codes
+    ("StatusCodes", "dynamic"),
+    ("Count2xx", "long"), ("Count3xx", "long"),
+    ("Count4xx", "long"), ("Count5xx", "long"), ("CountOther", "long"),
 ]
 
-EXCEPTIONS_SCHEMA = [
-    ("TestEnv", "string"), ("TestRunId", "string"), ("ADME", "string"),
-    ("SKU", "string"), ("Version", "string"), ("Partition", "string"),
-    ("TestScenario", "string"), ("Timestamp", "datetime"), ("Service", "string"),
+EXCEPTIONS_SCHEMA = _COMMON_ENVELOPE + [
+    ("Service", "string"),
     ("Method", "string"), ("Name", "string"), ("Error", "string"),
     ("Occurrences", "long"), ("Traceback", "string"), ("ErrorMessage", "string"),
 ]
 
-SUMMARY_SCHEMA = [
-    ("TestEnv", "string"), ("TestRunId", "string"), ("ADME", "string"),
-    ("Partition", "string"), ("SKU", "string"), ("Version", "string"),
-    ("TestScenario", "string"), ("Timestamp", "datetime"),
+SUMMARY_SCHEMA = _COMMON_ENVELOPE + [
     ("TotalRequests", "long"), ("TotalFailures", "long"),
     ("NumNoneRequests", "long"), ("TotalResponseTime", "long"),
     ("MinResponseTime", "real"), ("MaxResponseTime", "real"),
@@ -79,20 +95,37 @@ SUMMARY_SCHEMA = [
     ("Throughput", "real"),
 ]
 
+TIMESERIES_SCHEMA = _COMMON_ENVELOPE + [
+    ("BucketStart", "datetime"),
+    ("BucketDurationSeconds", "int"),
+    ("Service", "string"),
+    ("Name", "string"),
+    ("Method", "string"),
+    ("Requests", "long"),
+    ("Failures", "long"),
+    ("RequestsPerSec", "real"),
+    ("FailuresPerSec", "real"),
+    ("ResponseTime50th", "real"),
+    ("ResponseTime95th", "real"),
+    ("ResponseTime99th", "real"),
+]
+
 # ---------------------------------------------------------------------------
 # Table registry — table names and their schemas in one place
 # ---------------------------------------------------------------------------
 
 TABLE_REGISTRY = {
-    "LocustMetricsV3":      METRICS_SCHEMA,
-    "LocustExceptionsV3":   EXCEPTIONS_SCHEMA,
-    "LocustTestSummaryV3":  SUMMARY_SCHEMA,
+    "LocustMetricsV3":              METRICS_SCHEMA,
+    "LocustExceptionsV3":           EXCEPTIONS_SCHEMA,
+    "LocustTestSummaryV3":          SUMMARY_SCHEMA,
+    "LocustRequestTimeSeriesV3":    TIMESERIES_SCHEMA,
 }
 
 # Table name constants for use in publish()
 TABLE_METRICS    = "LocustMetricsV3"
 TABLE_EXCEPTIONS = "LocustExceptionsV3"
 TABLE_SUMMARY    = "LocustTestSummaryV3"
+TABLE_TIMESERIES = "LocustRequestTimeSeriesV3"
 
 
 def _columns_from_schema(schema):
@@ -106,15 +139,17 @@ def _build_create_merge_kql(table_name, schema):
     return f".create-merge table {table_name} ({col_defs})"
 
 
-def _create_csv_string(data_list, columns):
-    """Serialize a list of row dicts to a CSV string with the given column order."""
-    if not data_list:
-        return ""
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=columns)
-    writer.writeheader()
-    writer.writerows(data_list)
-    return output.getvalue()
+def _build_json_mapping_kql(table_name, schema):
+    """Generate .create-or-alter ingestion json mapping from schema."""
+    mapping_entries = []
+    for col_name, _ in schema:
+        mapping_entries.append(f'{{"column":"{col_name}","path":"$.{col_name}"}}')
+    mapping_str = ",".join(mapping_entries)
+    mapping_name = f"{table_name}_mapping"
+    return (
+        f".create-or-alter table {table_name} ingestion json mapping "
+        f"'{mapping_name}' '[{mapping_str}]'"
+    )
 
 
 class KustoPlugin(TelemetryPlugin):
@@ -189,31 +224,57 @@ class KustoPlugin(TelemetryPlugin):
         ingest_client = QueuedIngestClient(kcsb_ingest)
         meta = report.metadata
         ts_iso = meta.timestamp.isoformat()
+        envelope = self._build_envelope(meta, ts_iso)
         logger.info(f"Ingesting metrics for test_run_id={meta.test_run_id}")
 
         # --- Metrics ---
-        self._ingest_metrics(ingest_client, report, meta, ts_iso, database, DataFormat.CSV)
+        self._ingest_metrics(ingest_client, report, envelope, database)
 
         # --- Exceptions ---
-        self._ingest_exceptions(ingest_client, report, meta, ts_iso, database, DataFormat.CSV)
+        self._ingest_exceptions(ingest_client, report, envelope, database)
 
         # --- Summary ---
-        self._ingest_summary(ingest_client, report, meta, ts_iso, database, DataFormat.CSV)
+        self._ingest_summary(ingest_client, report, envelope, database)
+
+        # --- Time Series ---
+        self._ingest_timeseries(ingest_client, report, envelope, database)
 
         logger.info(f"Total ingestion completed in {time.time() - total_start:.1f}s")
+
+    # ------------------------------------------------------------------
+    # Envelope builder
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_envelope(meta, ts_iso):
+        """Build the common column dict shared by all 4 tables."""
+        return {
+            "TestRunId": meta.test_run_id,
+            "ADME": meta.adme_name,
+            "Partition": meta.partition,
+            "TestEnv": meta.test_run_environment,
+            "SKU": meta.performance_tier,
+            "Version": meta.version,
+            "TestScenario": meta.test_scenario,
+            "Timestamp": ts_iso,
+            "TestName": meta.test_name,
+            "ProfileName": meta.profile_name,
+            "Users": meta.users,
+            "SpawnRate": meta.spawn_rate,
+            "RunTimeSeconds": meta.run_time_seconds,
+            "EngineInstances": meta.engine_instances,
+            "EngineId": meta.engine_id,
+            "Labels": meta.labels,
+        }
 
     # ------------------------------------------------------------------
     # Row builders — one per table
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_metrics_row(meta, ts_iso, ep):
-        return {
-            "TestEnv": meta.test_run_environment,
-            "ADME": meta.adme_name, "Partition": meta.partition,
-            "SKU": meta.performance_tier, "Version": meta.version,
-            "TestRunId": meta.test_run_id, "TestScenario": meta.test_scenario,
-            "Timestamp": ts_iso,
+    def _build_metrics_row(envelope, ep):
+        row = dict(envelope)
+        row.update({
             "Service": ep.service, "Name": ep.name, "Method": ep.method,
             "Requests": ep.requests, "Failures": ep.failures,
             "NumNoneRequests": ep.num_none_requests,
@@ -246,30 +307,30 @@ class KustoPlugin(TelemetryPlugin):
             "RequestsPerSec": ep.requests_per_sec,
             "FailuresPerSec": ep.failures_per_sec,
             "Throughput": ep.throughput,
-        }
+            "StatusCodes": ep.status_codes,
+            "Count2xx": ep.count_2xx,
+            "Count3xx": ep.count_3xx,
+            "Count4xx": ep.count_4xx,
+            "Count5xx": ep.count_5xx,
+            "CountOther": ep.count_other,
+        })
+        return row
 
     @staticmethod
-    def _build_exception_row(meta, ts_iso, ex):
-        return {
-            "TestEnv": meta.test_run_environment,
-            "TestRunId": meta.test_run_id, "ADME": meta.adme_name,
-            "SKU": meta.performance_tier, "Version": meta.version,
-            "Partition": meta.partition,
-            "TestScenario": meta.test_scenario, "Timestamp": ts_iso,
+    def _build_exception_row(envelope, ex):
+        row = dict(envelope)
+        row.update({
             "Service": ex.service,
             "Method": ex.method, "Name": ex.name,
             "Error": ex.error, "Occurrences": ex.occurrences,
             "Traceback": ex.traceback, "ErrorMessage": ex.error_message,
-        }
+        })
+        return row
 
     @staticmethod
-    def _build_summary_row(meta, ts_iso, s):
-        return {
-            "TestEnv": meta.test_run_environment,
-            "TestRunId": meta.test_run_id, "ADME": meta.adme_name,
-            "Partition": meta.partition, "SKU": meta.performance_tier,
-            "Version": meta.version, "TestScenario": meta.test_scenario,
-            "Timestamp": ts_iso,
+    def _build_summary_row(envelope, s):
+        row = dict(envelope)
+        row.update({
             "TotalRequests": s.total_requests, "TotalFailures": s.total_failures,
             "NumNoneRequests": s.num_none_requests,
             "TotalResponseTime": s.total_response_time,
@@ -301,50 +362,82 @@ class KustoPlugin(TelemetryPlugin):
             "RequestsPerSec": s.requests_per_sec,
             "FailuresPerSec": s.failures_per_sec,
             "Throughput": s.throughput,
-        }
+        })
+        return row
 
     # ------------------------------------------------------------------
     # Ingest helpers
     # ------------------------------------------------------------------
 
-    def _ingest_metrics(self, ingest_client, report, meta, ts_iso, database, data_format):
+    def _ingest_metrics(self, ingest_client, report, envelope, database):
         from azure.kusto.ingest import IngestionProperties
-        rows = [self._build_metrics_row(meta, ts_iso, ep) for ep in report.endpoint_stats]
+        from azure.kusto.data import DataFormat
+        rows = [self._build_metrics_row(envelope, ep) for ep in report.endpoint_stats]
         if rows:
             t0 = time.time()
-            columns = _columns_from_schema(METRICS_SCHEMA)
-            csv_data = _create_csv_string(rows, columns)
+            payload = "\n".join(json.dumps(row, default=str) for row in rows)
             ingest_client.ingest_from_stream(
-                io.StringIO(csv_data),
-                IngestionProperties(database=database, table=TABLE_METRICS, data_format=data_format),
+                io.StringIO(payload),
+                IngestionProperties(database=database, table=TABLE_METRICS, data_format=DataFormat.MULTIJSON),
             )
             logger.info(f"{TABLE_METRICS}: {len(rows)} endpoint rows ingested ({time.time() - t0:.1f}s)")
 
-    def _ingest_exceptions(self, ingest_client, report, meta, ts_iso, database, data_format):
+    def _ingest_exceptions(self, ingest_client, report, envelope, database):
         from azure.kusto.ingest import IngestionProperties
-        rows = [self._build_exception_row(meta, ts_iso, ex) for ex in report.exceptions]
+        from azure.kusto.data import DataFormat
+        rows = [self._build_exception_row(envelope, ex) for ex in report.exceptions]
         if rows:
             t0 = time.time()
-            columns = _columns_from_schema(EXCEPTIONS_SCHEMA)
-            csv_data = _create_csv_string(rows, columns)
+            payload = "\n".join(json.dumps(row, default=str) for row in rows)
             ingest_client.ingest_from_stream(
-                io.StringIO(csv_data),
-                IngestionProperties(database=database, table=TABLE_EXCEPTIONS, data_format=data_format),
+                io.StringIO(payload),
+                IngestionProperties(database=database, table=TABLE_EXCEPTIONS, data_format=DataFormat.MULTIJSON),
             )
             logger.info(f"{TABLE_EXCEPTIONS}: {len(rows)} error rows ingested ({time.time() - t0:.1f}s)")
 
-    def _ingest_summary(self, ingest_client, report, meta, ts_iso, database, data_format):
+    def _ingest_summary(self, ingest_client, report, envelope, database):
         from azure.kusto.ingest import IngestionProperties
+        from azure.kusto.data import DataFormat
         if report.summary:
             t0 = time.time()
-            rows = [self._build_summary_row(meta, ts_iso, report.summary)]
-            columns = _columns_from_schema(SUMMARY_SCHEMA)
-            csv_data = _create_csv_string(rows, columns)
+            rows = [self._build_summary_row(envelope, report.summary)]
+            payload = "\n".join(json.dumps(row, default=str) for row in rows)
             ingest_client.ingest_from_stream(
-                io.StringIO(csv_data),
-                IngestionProperties(database=database, table=TABLE_SUMMARY, data_format=data_format),
+                io.StringIO(payload),
+                IngestionProperties(database=database, table=TABLE_SUMMARY, data_format=DataFormat.MULTIJSON),
             )
             logger.info(f"{TABLE_SUMMARY}: 1 summary row ingested ({time.time() - t0:.1f}s)")
+
+    def _ingest_timeseries(self, ingest_client, report, envelope, database):
+        from azure.kusto.ingest import IngestionProperties
+        from azure.kusto.data import DataFormat
+        if not report.timeseries:
+            return
+        t0 = time.time()
+        rows = []
+        for ts in report.timeseries:
+            row = dict(envelope)
+            row.update({
+                "BucketStart": ts.bucket_start,
+                "BucketDurationSeconds": ts.bucket_duration_seconds,
+                "Service": ts.service,
+                "Name": ts.name,
+                "Method": ts.method,
+                "Requests": ts.requests,
+                "Failures": ts.failures,
+                "RequestsPerSec": ts.requests_per_sec,
+                "FailuresPerSec": ts.failures_per_sec,
+                "ResponseTime50th": ts.response_time_50th,
+                "ResponseTime95th": ts.response_time_95th,
+                "ResponseTime99th": ts.response_time_99th,
+            })
+            rows.append(row)
+        payload = "\n".join(json.dumps(row, default=str) for row in rows)
+        ingest_client.ingest_from_stream(
+            io.StringIO(payload),
+            IngestionProperties(database=database, table=TABLE_TIMESERIES, data_format=DataFormat.MULTIJSON),
+        )
+        logger.info(f"{TABLE_TIMESERIES}: {len(rows)} bucket rows ingested ({time.time() - t0:.1f}s)")
 
     # ------------------------------------------------------------------
     # Auto-create database & tables
@@ -373,8 +466,8 @@ class KustoPlugin(TelemetryPlugin):
         except Exception:
             logger.debug(f"Could not create database '{database}' (likely already exists or insufficient permissions)")
 
-        # 2. Create-merge tables — KQL generated from schema definitions
-        logger.info("Ensuring tables exist (create-merge)...")
+        # 2. Create-merge tables + JSON mappings — KQL generated from schema definitions
+        logger.info("Ensuring tables exist (create-merge + json mapping)...")
         table_names = []
         for table_name, schema in TABLE_REGISTRY.items():
             kql = _build_create_merge_kql(table_name, schema)
@@ -384,6 +477,15 @@ class KustoPlugin(TelemetryPlugin):
             except Exception:
                 logger.warning(
                     f"Could not create-merge table '{table_name}' — it may already exist or permissions are insufficient",
+                    exc_info=True,
+                )
+            # JSON ingestion mapping
+            mapping_kql = _build_json_mapping_kql(table_name, schema)
+            try:
+                mgmt_client.execute_mgmt(database, mapping_kql)
+            except Exception:
+                logger.warning(
+                    f"Could not create json mapping for '{table_name}' — it may already exist",
                     exc_info=True,
                 )
 
