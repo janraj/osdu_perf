@@ -290,7 +290,8 @@ class AzureLoadTestRunner:
                    spawn_rate: int = 2,
                    run_time: str = "60s",
                    engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None,
-                   test_description: str = "") -> Optional[Dict[str, Any]]:
+                   test_description: str = "",
+                   metrics_config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -356,6 +357,23 @@ class AzureLoadTestRunner:
             environment_variables["LOCUST_TAGS"] = tags 
             environment_variables["ADME_BEARER_TOKEN"] = adme_token  # Pass the token for authentication 
             environment_variables["LAST_TEST_TIME_STAMP"] = str(int(time.time()))  # Unique test iteration based on timestamp
+
+            # Metrics collector env vars — passed so ALT containers can
+            # reconstruct the config that is normally in system_config.yaml.
+            metrics_cfg = metrics_config or {}
+
+            # Kusto plugin — cluster presence implies enabled.
+            kusto_cfg = metrics_cfg.get("kusto") or {}
+            kusto_cluster = (kusto_cfg.get("cluster") or "").strip()
+            if kusto_cluster:
+                environment_variables["KUSTO_CLUSTER"] = kusto_cluster
+                kusto_db = (kusto_cfg.get("database") or "").strip()
+                if kusto_db:
+                    environment_variables["KUSTO_DATABASE"] = kusto_db
+                # Only pass KUSTO_ENABLED if explicitly disabled in config
+                enabled_flag = kusto_cfg.get("enabled")
+                if enabled_flag is not None and not bool(enabled_flag):
+                    environment_variables["KUSTO_ENABLED"] = "false"
 
             
             body = {
@@ -468,7 +486,8 @@ class AzureLoadTestRunner:
                         run_time: str = "60s",
                         engine_instances: int = 1,
                         tags: str = "", adme_token: Optional[str] = None,
-                        test_description: str = "") -> bool:
+                        test_description: str = "",
+                        metrics_config: Optional[Dict[str, Any]] = None) -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         Delegates file finding and uploading to AzureLoadTestFileManager.
@@ -563,7 +582,8 @@ class AzureLoadTestRunner:
                 engine_instances=engine_instances,
                 tags=tags,
                 adme_token=adme_token,
-                test_description=test_description
+                test_description=test_description,
+                metrics_config=metrics_config
             )
             
             if not test_result:

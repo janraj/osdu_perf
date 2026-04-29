@@ -152,8 +152,4 @@ class PerformanceUser():
         from ..telemetry.request_events import merge_state
         merge_state(data.get("osdu_perf_events"))
 
-    @events.request.add_listener
-    def on_request(request_type, name, response_time, response_length, response, **kwargs):
-        pass
-
    

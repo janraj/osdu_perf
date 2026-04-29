@@ -85,7 +85,8 @@ class AzureLoadTestCommand(
                 engine_instances=config['engine_instances'],
                 tags=config['tags'],
                 adme_token = config['osdu_adme_token'],
-                test_description = config.get('test_description', '')
+                test_description = config.get('test_description', ''),
+                metrics_config=config.get('metrics_config')
             )
             
             if setup_success:
@@ -146,6 +147,9 @@ class AzureLoadTestCommand(
         test_description = input_handler.get_test_run_id_description()
         execution_display_name = input_handler.get_test_run_name(test_name)
         
+        # Get metrics collector config for passing to ALT containers
+        metrics_config = input_handler.get_metrics_collector_config()
+
         return {
             'host': host,
             'partition': partition,
@@ -166,6 +170,7 @@ class AzureLoadTestCommand(
             'tags': tags,
             'test_description': test_description,
             'execution_display_name': execution_display_name,
+            'metrics_config': metrics_config,
         }
 
 
