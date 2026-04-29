@@ -425,11 +425,44 @@ class InputHandler:
     def get_metrics_collector_config(self) -> Dict[str, Any]:
         """
         Get complete metrics collector configuration.
-        
+
+        Priority: config file > environment variables > defaults.
+        In ALT containers the config file is absent, so we fall back to
+        env vars.  Cluster presence implies enabled (backward compat with
+        older configs that lack the 'enabled' field).  KUSTO_ENABLED=false
+        is the only way to explicitly disable when a cluster is set.
+
         Returns:
             Dictionary containing all metrics collector configurations.
         """
-        return self.system_config.get('metrics_collector', {})
+        file_config = self.system_config.get('metrics_collector', {})
+        if file_config:
+            return file_config
+
+        # No config file — build from env vars (ALT flow).
+        # Assemble each plugin section independently so disabling one
+        # does not suppress others.
+        config: Dict[str, Any] = {}
+
+        # --- Kusto plugin ---
+        cluster = (os.getenv("KUSTO_CLUSTER") or "").strip()
+
+        if cluster:
+            # Explicit disable overrides cluster presence.
+            kusto_enabled = (os.getenv("KUSTO_ENABLED") or "").strip().lower()
+            if kusto_enabled not in ("false", "0", "no"):
+                kusto_section: Dict[str, Any] = {
+                    "cluster": cluster,
+                }
+                database = (os.getenv("KUSTO_DATABASE") or "").strip()
+                if database:
+                    kusto_section["database"] = database
+                config["kusto"] = kusto_section
+
+        # --- Future plugins can be added here ---
+        # e.g. config["appinsights"] = { ... } from env vars
+
+        return config
     
     def is_kusto_enabled(self) -> bool:
         """
