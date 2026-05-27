@@ -104,10 +104,11 @@ class AzureLoadTestFileManager:
         try:
             self.logger.info(f"Searching for test files in: {test_directory}")
             
-            # Search patterns: all .py files in the test directory (non-recursive), plus JSON configs and requirements
+            # Search patterns: all .py files in the test directory (non-recursive), plus JSON configs, perf_ files, and requirements
             search_patterns = [
                 os.path.join(test_directory, "*.py"),
                 os.path.join(test_directory, "perf_*.json"),
+                os.path.join(test_directory, "perf_*"),
                 os.path.join(test_directory, "requirements.txt")
             ]
             
