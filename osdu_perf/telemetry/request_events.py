@@ -6,6 +6,8 @@ Locust's built-in ``StatsEntry``:
   * Time-bucketed request/latency data for trend analysis
 """
 
+from __future__ import annotations
+
 import math
 import time
 import threading

@@ -212,6 +212,11 @@ The framework uses split configuration files:
 - Can have own metrics collector 
 - Can have multiple scenario definitions in `config/test_config.yaml` (run command accepts one scenario at a time)
 - Can have own azure load test instance.
+- Each scenario may define an optional `environment:` (alias `env:`) block with
+  arbitrary key/value pairs that are forwarded as environment variables to both
+  `run local` and `run azure_load_test`. Set `performance_tier_profiles` inside
+  the block to override the performance tier for that scenario only. Priority:
+  CLI args > scenario override > global config.
 
 ```yaml
 # OSDU Environment Configuration
@@ -504,9 +509,28 @@ scenarios:
   # Required per scenario:
   # - Scenario key itself is the test scenario/tag (e.g., record_size_1KB)
   # - Provide test_name_prefix and test_run_id_description
+  #
+  # Optional per scenario:
+  # - environment: (alias 'env:') per-scenario overrides + custom variables.
+  #   * performance_tier_profiles as a MAPPING = per-tier VALUE overrides
+  #     (mirrors the GLOBAL schema above). Deep-merged over the global profile
+  #     for the SELECTED tier only; it does NOT change which tier is selected.
+  #     Provide only the tier(s)/field(s) you want to override (nothing is
+  #     mandatory). e.g. 'flex.users' applies only when flex is the selected tier.
+  #   * performance_tier_profiles as a STRING = selects the tier by name for
+  #     this scenario (same effect as setting 'performance_tier: <name>').
+  #   * Any other key/value pairs are forwarded as environment variables to
+  #     BOTH local and Azure Load Testing execution (custom test flags/inputs).
+  #   Scenarios without an environment block use the global configuration.
   record_size_1KB:
     test_name_prefix:
     test_run_id_description:
+    environment:
+      performance_tier_profiles:
+        flex:
+          users: 50            # applies only when 'flex' is the selected tier
+          run_time: "900s"
+      # RECORD_SIZE_BYTES: 1024   # example custom variable forwarded to runners
 
   record_size_100KB:
     test_name_prefix:

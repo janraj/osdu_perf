@@ -291,7 +291,8 @@ class AzureLoadTestRunner:
                    run_time: str = "60s",
                    engine_instances: int = 1, tags: str = "", adme_token: Optional[str] = None,
                    test_description: str = "",
-                   metrics_config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+                   metrics_config: Optional[Dict[str, Any]] = None,
+                   scenario_env_vars: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
         """
         Create a test using Azure Load Testing Data Plane API with OSDU-specific parameters.
         
@@ -374,6 +375,14 @@ class AzureLoadTestRunner:
                 enabled_flag = kusto_cfg.get("enabled")
                 if enabled_flag is not None and not bool(enabled_flag):
                     environment_variables["KUSTO_ENABLED"] = "false"
+
+            # Scenario-level custom environment variables. Added last so a
+            # scenario can inject arbitrary runtime flags, but core operational
+            # variables set above are preserved (not clobbered).
+            for key, value in (scenario_env_vars or {}).items():
+                if value is None:
+                    continue
+                environment_variables.setdefault(str(key), str(value))
 
             
             body = {
@@ -487,7 +496,8 @@ class AzureLoadTestRunner:
                         engine_instances: int = 1,
                         tags: str = "", adme_token: Optional[str] = None,
                         test_description: str = "",
-                        metrics_config: Optional[Dict[str, Any]] = None) -> bool:
+                        metrics_config: Optional[Dict[str, Any]] = None,
+                        scenario_env_vars: Optional[Dict[str, str]] = None) -> bool:
         """
         Complete test files setup: find, copy, and upload test files to Azure Load Test resource.
         Delegates file finding and uploading to AzureLoadTestFileManager.
@@ -583,7 +593,8 @@ class AzureLoadTestRunner:
                 tags=tags,
                 adme_token=adme_token,
                 test_description=test_description,
-                metrics_config=metrics_config
+                metrics_config=metrics_config,
+                scenario_env_vars=scenario_env_vars
             )
             
             if not test_result:

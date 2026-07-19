@@ -239,12 +239,63 @@ performance_tier_profiles:
     spawn_rate: 2
     run_time: "60s"
     engine_instances: 1
+  flex:
+    users: 200
+    spawn_rate: 20
+    run_time: "300s"
+    engine_instances: 4
 
 scenarios:
   health_check:
     test_name_prefix: "health_check_test"
     test_run_id_description: "Health check scenario"
+
+  record_size_1KB:
+    test_name_prefix: "storage_1kb"
+    test_run_id_description: "1KB record perf"
+    # Optional per-scenario environment block (alias: 'env').
+    environment:
+      # `performance_tier_profiles` as a MAPPING = per-tier VALUE overrides
+      # (same schema as the global profiles). Deep-merged over the global
+      # profile for the SELECTED tier only; it does NOT change which tier is
+      # selected. Provide only the tier(s)/field(s) you want to override.
+      # To choose the tier for this scenario instead, set `performance_tier:`
+      # (or `sku:`) to a tier name, or set `performance_tier_profiles:` to a
+      # plain string (the tier name).
+      performance_tier_profiles:
+        flex:
+          users: 50           # applies only when 'flex' is the selected tier
+          run_time: "900s"
+      # Any other key/value pairs are forwarded as environment variables to
+      # BOTH local and Azure Load Testing execution.
+      RECORD_SIZE_BYTES: 1024
+      CUSTOM_FLAG: "on"
 ```
+
+#### Scenario-level environment variables & overrides
+
+Add an `environment:` (or `env:`) block to any scenario. The block does two
+distinct things, so it's important not to confuse them:
+
+- **Select the tier** (which named profile to use) — set `performance_tier:`
+  (or `sku:`) to a tier name, **or** set `performance_tier_profiles:` to a plain
+  **string** (the tier name). This only changes tier selection.
+- **Override tier values** — set `performance_tier_profiles:` to a **mapping**
+  that mirrors the global schema (`tier -> settings`). These values are
+  **deep-merged over** the global profile for the **currently selected** tier
+  (partial overrides allowed, nothing is mandatory). A mapping does **not**
+  change which tier is selected — it only tunes values, and the override that
+  applies is the one keyed by the selected tier. For example, defining
+  `flex.users` only takes effect when `flex` is the selected tier.
+- Any **other** key/value pairs are forwarded as environment variables to both
+  `run local` and `run azure_load_test`, so your test code can read them via
+  `os.getenv(...)`.
+- **Tier selection priority (highest wins):** CLI `--performance-tier` →
+  scenario tier name (`performance_tier` / `sku` / `performance_tier_profiles`
+  given as a string) → global `performance_tier`.
+- **Value override priority (highest wins):** scenario per-tier override →
+  global tier profile → built-in defaults. Scenarios without an `environment`
+  block use the global profile unchanged, so existing configs keep working.
 
 ### Configuration Hierarchy
 

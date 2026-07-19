@@ -3,7 +3,7 @@ import logging
 import yaml
 import subprocess
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -110,7 +110,7 @@ class InputHandler:
             self.logger.error(f"Error reading configuration file {path}: {e}")
             return {}
 
-    def _load_split_configs(self) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def _load_split_configs(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Load split configuration from system and test config files."""
         discovered = self._find_split_config_files()
         system_config = self._load_yaml_file(discovered['system'])
@@ -475,6 +475,143 @@ class InputHandler:
         # Consider Kusto enabled if we have at least cluster and database
         return bool(kusto_config.get('cluster') and kusto_config.get('database'))
     
+    # Keys inside a scenario's env/environment block that are reserved for
+    # selecting the performance-tier profile rather than being forwarded as
+    # arbitrary runtime environment variables.
+    RESERVED_SCENARIO_ENV_KEYS = frozenset(
+        {'performance_tier_profiles', 'performance_tier_profile', 'performance_tier', 'sku'}
+    )
+
+    def _get_selected_scenario_config(self) -> Tuple[str, Dict[str, Any]]:
+        """
+        Resolve the currently selected scenario name and its config mapping.
+
+        Priority: explicitly selected scenario > TEST_SCENARIO env var. Falls
+        back to the first configured scenario when the selection is missing or
+        invalid, mirroring the historical get_test_settings() behavior.
+        """
+        scenarios = self.test_config.get('scenarios', {}) or {}
+        configured_scenario = self.selected_scenario or os.getenv('TEST_SCENARIO')
+
+        if configured_scenario and configured_scenario in scenarios:
+            return configured_scenario, (scenarios.get(configured_scenario) or {})
+        if scenarios:
+            name = next(iter(scenarios.keys()))
+            return name, (scenarios.get(name) or {})
+        return (configured_scenario or ''), {}
+
+    def _extract_scenario_env(self, scenario_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Return the env/environment mapping from a scenario config.
+
+        Accepts either an `env` or `environment` key; `env` takes precedence
+        when both are present. Returns an empty dict when neither is defined.
+        """
+        if not isinstance(scenario_config, dict):
+            return {}
+        env_block = scenario_config.get('env')
+        if env_block is None:
+            env_block = scenario_config.get('environment')
+        return env_block if isinstance(env_block, dict) else {}
+
+    def get_scenario_performance_tier_override(self) -> Optional[str]:
+        """
+        Return the scenario-level performance-tier NAME override, if any.
+
+        A scenario may pin its tier by setting `performance_tier` / `sku`, or by
+        setting `performance_tier_profiles` to a plain string (the tier name).
+        When `performance_tier_profiles` is a nested mapping instead, it is
+        treated as per-tier value overrides (see get_scenario_profile_overrides)
+        and does NOT change tier selection.
+
+        Returns:
+            The overriding tier name, or None when no name override is set.
+        """
+        _name, scenario_config = self._get_selected_scenario_config()
+        env_block = self._extract_scenario_env(scenario_config)
+
+        # A string value selects the tier by name; a dict is a value override.
+        candidates = [
+            env_block.get('performance_tier'),
+            env_block.get('performance_tier_profile'),
+            env_block.get('sku'),
+        ]
+        profiles = env_block.get('performance_tier_profiles')
+        if isinstance(profiles, str):
+            candidates.insert(0, profiles)
+
+        for override in candidates:
+            if isinstance(override, str) and override.strip():
+                return override.strip()
+        return None
+
+    def get_scenario_profile_overrides(self) -> Dict[str, Any]:
+        """
+        Return per-tier profile value overrides defined inside a scenario.
+
+        The scenario's env/environment block may contain a
+        `performance_tier_profiles` mapping that mirrors the global
+        `performance_tier_profiles` schema (tier -> settings). These values are
+        deep-merged on top of the matching global tier profile, with local
+        values winning. Nothing is mandatory: a scenario may override a single
+        tier, or only a few fields within a tier.
+
+        Returns:
+            A tier-name (lowercased) -> settings mapping, or {} when none.
+        """
+        _name, scenario_config = self._get_selected_scenario_config()
+        env_block = self._extract_scenario_env(scenario_config)
+
+        profiles = env_block.get('performance_tier_profiles')
+        if not isinstance(profiles, dict):
+            return {}
+        return {
+            str(tier).lower(): settings
+            for tier, settings in profiles.items()
+            if isinstance(settings, dict)
+        }
+
+    @staticmethod
+    def _apply_profile(target: Dict[str, Any], profile: Dict[str, Any]) -> None:
+        """
+        Merge a profile mapping into target in-place (skipping None values).
+
+        `default_wait_time` is merged field-by-field so partial overrides (e.g.
+        only `max`) do not wipe the other bound.
+        """
+        if not isinstance(profile, dict):
+            return
+        for key, value in profile.items():
+            if key == 'default_wait_time' and isinstance(value, dict):
+                current = target.get('default_wait_time')
+                if not isinstance(current, dict):
+                    current = {}
+                    target['default_wait_time'] = current
+                current.update({k: v for k, v in value.items() if v is not None})
+            elif value is not None:
+                target[key] = value
+
+    def get_scenario_env_vars(self) -> Dict[str, str]:
+        """
+        Return arbitrary scenario-level environment variables to forward to runners.
+
+        Reads the selected scenario's env/environment block, drops the reserved
+        tier-selection keys, and stringifies remaining values so they can be
+        forwarded to both the local subprocess environment and the Azure Load
+        Testing payload. Returns an empty dict when the scenario defines none.
+        """
+        _name, scenario_config = self._get_selected_scenario_config()
+        env_block = self._extract_scenario_env(scenario_config)
+
+        env_vars: Dict[str, str] = {}
+        for key, value in env_block.items():
+            if key in self.RESERVED_SCENARIO_ENV_KEYS:
+                continue
+            if value is None:
+                continue
+            env_vars[str(key)] = str(value)
+        return env_vars
+
     def get_test_settings(self) -> Dict[str, Any]:
         """
         Get test configuration settings with defaults.
@@ -507,8 +644,13 @@ class InputHandler:
         normalized_profiles = {
             str(key).lower(): value for key, value in profile_source.items()
         } if isinstance(profile_source, dict) else {}
-        scenarios = self.test_config.get('scenarios', {}) or {}
 
+        # Resolve the selected scenario first so scenario-level overrides
+        # (including performance-tier selection) can influence profile resolution.
+        selected_scenario_name, selected_scenario = self._get_selected_scenario_config()
+
+        # Effective performance tier honors CLI > scenario env override > global.
+        # get_osdu_performance_tier() already folds in the scenario-level override.
         configured_performance_tier = (self.get_osdu_performance_tier() or 'standard').lower()
         selected_profile = (
             normalized_profiles.get(configured_performance_tier)
@@ -517,25 +659,30 @@ class InputHandler:
             or {}
         )
 
-        configured_scenario = self.selected_scenario or os.getenv('TEST_SCENARIO')
-        selected_scenario = {}
-        selected_scenario_name = configured_scenario or ''
-        if configured_scenario and configured_scenario in scenarios:
-            selected_scenario = scenarios.get(configured_scenario, {})
-        elif scenarios:
-            selected_scenario_name = next(iter(scenarios.keys()))
-            selected_scenario = scenarios.get(selected_scenario_name, {})
+        # Scenario-local per-tier overrides use the same schema as the global
+        # performance_tier_profiles and win over global values for the selected
+        # tier (deep-merged; partial overrides allowed).
+        scenario_profile_overrides = self.get_scenario_profile_overrides()
+        local_profile_override = (
+            scenario_profile_overrides.get(configured_performance_tier)
+            or scenario_profile_overrides.get('standard')
+            or scenario_profile_overrides.get('medium')
+            or {}
+        )
 
         final_settings = default_test_settings.copy()
-        if isinstance(selected_profile, dict):
-            for key, value in selected_profile.items():
-                if key == 'default_wait_time' and isinstance(value, dict):
-                    final_settings[key].update({k: v for k, v in value.items() if v is not None})
-                elif value is not None:
-                    final_settings[key] = value
+        # Deep-copy the default nested dict so profile merges never mutate it.
+        final_settings['default_wait_time'] = dict(default_test_settings['default_wait_time'])
+        # 1) global profile for the tier, then 2) scenario-local override (wins).
+        self._apply_profile(final_settings, selected_profile)
+        self._apply_profile(final_settings, local_profile_override)
 
         if isinstance(selected_scenario, dict):
             for key, value in selected_scenario.items():
+                # The env/environment block is forwarded to runners separately;
+                # it is not a test setting, so skip it here.
+                if key in ('env', 'environment'):
+                    continue
                 if value is not None:
                     final_settings[key] = value
 
@@ -718,7 +865,13 @@ class InputHandler:
         """
         if cli_override:
             return cli_override
-            
+
+        # A scenario may override the performance tier for its specific run.
+        # Priority: CLI override > scenario-level override > global config.
+        scenario_override = self.get_scenario_performance_tier_override()
+        if scenario_override:
+            return scenario_override
+
         osdu_env = self.system_config.get('osdu_environment', {})
         return osdu_env.get('performance_tier') or osdu_env.get('sku')
 
@@ -911,7 +1064,7 @@ class InputHandler:
             return self.validate_scenario(configured_scenario)
         return ''
     
-    def generate_test_name_and_run_id(self, performance_tier: str, version: str) -> tuple[str, str]:
+    def generate_test_name_and_run_id(self, performance_tier: str, version: str) -> Tuple[str, str]:
         """
         Generate test name and test run ID using test_name_prefix from selected scenario.
         This is a common function used by both local and azure_load_tests commands.
