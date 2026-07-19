@@ -86,7 +86,8 @@ class AzureLoadTestCommand(
                 tags=config['tags'],
                 adme_token = config['osdu_adme_token'],
                 test_description = config.get('test_description', ''),
-                metrics_config=config.get('metrics_config')
+                metrics_config=config.get('metrics_config'),
+                scenario_env_vars=config.get('scenario_env_vars')
             )
             
             if setup_success:
@@ -150,6 +151,10 @@ class AzureLoadTestCommand(
         # Get metrics collector config for passing to ALT containers
         metrics_config = input_handler.get_metrics_collector_config()
 
+        # Resolve scenario-level custom environment variables to forward into
+        # the Azure Load Testing payload. Empty when the scenario defines none.
+        scenario_env_vars = input_handler.get_scenario_env_vars()
+
         return {
             'host': host,
             'partition': partition,
@@ -171,6 +176,7 @@ class AzureLoadTestCommand(
             'test_description': test_description,
             'execution_display_name': execution_display_name,
             'metrics_config': metrics_config,
+            'scenario_env_vars': scenario_env_vars,
         }
 
 

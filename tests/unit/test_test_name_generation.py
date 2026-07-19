@@ -33,6 +33,7 @@ def test_local_runner_uses_shared_test_name_generation_for_run_id():
     input_handler.get_osdu_performance_tier.return_value = "standard"
     input_handler.get_osdu_version.return_value = "1.0"
     input_handler.get_test_scenario.return_value = "scenario_1"
+    input_handler.get_scenario_env_vars.return_value = {}
     input_handler.generate_test_name_and_run_id.return_value = (
         "team_prefix",
         "team_prefix_20260417_120000",

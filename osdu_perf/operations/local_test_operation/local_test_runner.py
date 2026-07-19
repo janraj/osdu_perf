@@ -10,7 +10,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..input_handler import InputHandler
 from ...utils.logger import get_logger
@@ -33,6 +33,7 @@ class TestConfiguration:
     spawn_rate: int
     run_time: str
     tags: str
+    env_vars: Dict[str, str] = field(default_factory=dict)
     
     def to_env_dict(self) -> Dict[str, str]:
         """Convert configuration to environment variables dictionary."""
@@ -46,6 +47,11 @@ class TestConfiguration:
         
         if self.token:
             env['ADME_BEARER_TOKEN'] = self.token
+
+        # Forward scenario-level custom environment variables without
+        # clobbering the core operational variables set above.
+        for key, value in (self.env_vars or {}).items():
+            env.setdefault(key, str(value))
             
         return env
 
@@ -260,6 +266,12 @@ class LocalTestRunner:
         if token is None:
             #need to make it better.
             token = self._input_handler.get_token_for_control_path(app_id)
+
+        # Resolve scenario-level custom environment variables to forward to the
+        # Locust subprocess. Empty when the scenario defines no overrides.
+        env_vars = input_handler.get_scenario_env_vars()
+        if env_vars:
+            self.logger.info(f"Forwarding scenario env vars: {', '.join(sorted(env_vars.keys()))}")
         
         # Create and return the configuration data class
         config = TestConfiguration(
@@ -271,7 +283,8 @@ class LocalTestRunner:
             users=users,
             spawn_rate=spawn_rate,
             run_time=run_time,
-            tags=tags
+            tags=tags,
+            env_vars=env_vars
         )
         
         return config

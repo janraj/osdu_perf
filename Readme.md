@@ -239,12 +239,50 @@ performance_tier_profiles:
     spawn_rate: 2
     run_time: "60s"
     engine_instances: 1
+  flex:
+    users: 200
+    spawn_rate: 20
+    run_time: "300s"
+    engine_instances: 4
 
 scenarios:
   health_check:
     test_name_prefix: "health_check_test"
     test_run_id_description: "Health check scenario"
+
+  record_size_1KB:
+    test_name_prefix: "storage_1kb"
+    test_run_id_description: "1KB record perf"
+    # Optional per-scenario environment block (alias: 'env').
+    environment:
+      # Local per-tier overrides — same schema as the global
+      # performance_tier_profiles. Provide only the tier(s)/field(s) you want
+      # to override; local values win over global (deep-merge). Nothing is
+      # mandatory here.
+      performance_tier_profiles:
+        flex:
+          users: 50           # overrides only flex.users for this scenario
+          run_time: "900s"
+      # Any other key/value pairs are forwarded as environment variables to
+      # BOTH local and Azure Load Testing execution.
+      RECORD_SIZE_BYTES: 1024
+      CUSTOM_FLAG: "on"
 ```
+
+#### Scenario-level environment variables & overrides
+
+- Add an `environment:` (or `env:`) block to any scenario.
+- `performance_tier_profiles:` inside the block mirrors the **global** schema.
+  Provide only the tier(s) and field(s) you want to change — local values are
+  **deep-merged over** the global tier profile (nothing is mandatory). For
+  example, defining just `flex.users` overrides only that field for the `flex`
+  tier; all other `flex` values come from the global config.
+- Any other key/value pairs are forwarded as environment variables to both
+  `run local` and `run azure_load_test`, so your test code can read them via
+  `os.getenv(...)`.
+- **Priority (highest wins):** CLI arguments → scenario-level override →
+  global configuration. Scenarios without an `environment` block fall back to
+  the global profile, so existing configs keep working unchanged.
 
 ### Configuration Hierarchy
 
