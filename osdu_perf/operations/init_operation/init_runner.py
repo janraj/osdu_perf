@@ -512,10 +512,13 @@ scenarios:
   #
   # Optional per scenario:
   # - environment: (alias 'env:') per-scenario overrides + custom variables.
-  #   * performance_tier_profiles: mirrors the GLOBAL schema above. Provide only
-  #     the tier(s) and field(s) you want to override — nothing is mandatory.
-  #     Scenario-local values win over the global tier profile (deep-merge).
-  #     e.g. defining just 'flex.users' overrides only that field for flex.
+  #   * performance_tier_profiles as a MAPPING = per-tier VALUE overrides
+  #     (mirrors the GLOBAL schema above). Deep-merged over the global profile
+  #     for the SELECTED tier only; it does NOT change which tier is selected.
+  #     Provide only the tier(s)/field(s) you want to override (nothing is
+  #     mandatory). e.g. 'flex.users' applies only when flex is the selected tier.
+  #   * performance_tier_profiles as a STRING = selects the tier by name for
+  #     this scenario (same effect as setting 'performance_tier: <name>').
   #   * Any other key/value pairs are forwarded as environment variables to
   #     BOTH local and Azure Load Testing execution (custom test flags/inputs).
   #   Scenarios without an environment block use the global configuration.
@@ -525,7 +528,7 @@ scenarios:
     environment:
       performance_tier_profiles:
         flex:
-          users: 50            # overrides only flex.users for this scenario
+          users: 50            # applies only when 'flex' is the selected tier
           run_time: "900s"
       # RECORD_SIZE_BYTES: 1024   # example custom variable forwarded to runners
 

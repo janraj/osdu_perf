@@ -3,7 +3,7 @@ import logging
 import yaml
 import subprocess
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -110,7 +110,7 @@ class InputHandler:
             self.logger.error(f"Error reading configuration file {path}: {e}")
             return {}
 
-    def _load_split_configs(self) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def _load_split_configs(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Load split configuration from system and test config files."""
         discovered = self._find_split_config_files()
         system_config = self._load_yaml_file(discovered['system'])
@@ -482,7 +482,7 @@ class InputHandler:
         {'performance_tier_profiles', 'performance_tier_profile', 'performance_tier', 'sku'}
     )
 
-    def _get_selected_scenario_config(self) -> tuple[str, Dict[str, Any]]:
+    def _get_selected_scenario_config(self) -> Tuple[str, Dict[str, Any]]:
         """
         Resolve the currently selected scenario name and its config mapping.
 
@@ -1064,7 +1064,7 @@ class InputHandler:
             return self.validate_scenario(configured_scenario)
         return ''
     
-    def generate_test_name_and_run_id(self, performance_tier: str, version: str) -> tuple[str, str]:
+    def generate_test_name_and_run_id(self, performance_tier: str, version: str) -> Tuple[str, str]:
         """
         Generate test name and test run ID using test_name_prefix from selected scenario.
         This is a common function used by both local and azure_load_tests commands.
