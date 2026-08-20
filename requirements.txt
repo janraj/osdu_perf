@@ -1,6 +1,8 @@
 locust==2.42.6
 azure-identity==1.25.1
-azure-core==1.36.0
+# CVE-2026-21226 affects azure-core 1.36.x; require the patched SDK chain.
+azure-core>=1.38.0
+msal>=1.37.0
 azure-mgmt-core==1.6.0
 azure-mgmt-resource==24.0.0
 azure-mgmt-loadtesting==1.0.0

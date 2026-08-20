@@ -14,7 +14,7 @@ except (FileNotFoundError, UnicodeDecodeError):
 
 setup(
     name="osdu_perf",
-    version="1.0.51",
+    version="1.0.52",
     author="Janraj CJ",
     author_email="janrajcj@microsoft.com",
     description="Performance Testing Framework for OSDU Services",
@@ -25,7 +25,8 @@ setup(
     install_requires=[
         "locust==2.42.6",
         "azure-identity==1.25.1",
-        "azure-core==1.36.0",
+        "azure-core>=1.38.0",
+        "msal>=1.37.0",
         "azure-mgmt-core==1.6.0",
         "azure-mgmt-resource==24.0.0",
         "azure-mgmt-loadtesting==1.0.0",
@@ -43,13 +44,12 @@ setup(
             "flake8==5.0.0",
         ]
     },
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osdu_perf"
-version = "1.0.51"
+version = "1.0.52"
 authors = [
     {name = "Janraj CJ", email = "janrajcj@microsoft.com"},
 ]
@@ -14,12 +14,11 @@ maintainers = [
 description = "Performance Testing Framework for OSDU Services - A comprehensive tool for testing OSDU APIs with Locust and Azure Load Testing SDK"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -31,7 +30,8 @@ keywords = ["performance", "testing", "locust", "azure", "osdu", "load-testing",
 dependencies = [
     "locust==2.42.6",
     "azure-identity==1.25.1",
-    "azure-core==1.36.0",
+    "azure-core>=1.38.0",
+    "msal>=1.37.0",
     "azure-mgmt-core==1.6.0",
     "azure-mgmt-resource==24.0.0",
     "azure-mgmt-loadtesting==1.0.0",
