@@ -11,7 +11,7 @@ from .operations.init_operation import InitRunner
 from .locust_integration.user import PerformanceUser
 
 
-__version__ = "1.0.52"
+__version__ = "1.0.53"
 __author__ = "Janraj CJ"
 __email__ = "janrajcj@microsoft.com"
 
